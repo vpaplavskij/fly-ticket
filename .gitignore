@@ -1,0 +1,21 @@
+# ── Secrets & local config ────────────────────────────────────────────
+# Real environment file (never commit). .env.example is the committed template.
+.env
+
+# ── Logs & runtime artifacts ──────────────────────────────────────────
+# Daily app logs, cron/bot watchdog output. Ignore only the log files so the
+# directory is preserved in git via storage/logs/.gitkeep.
+storage/logs/*.log
+
+# PHPUnit test-run cache (regenerated on every run; lives in vendor/bin/).
+.phpunit.result.cache
+vendor/bin/.phpunit.result.cache
+
+# ── Tooling / IDE noise ───────────────────────────────────────────────
+.continue/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# NOTE: vendor/ is intentionally COMMITTED (see AGENTS.md), not ignored.

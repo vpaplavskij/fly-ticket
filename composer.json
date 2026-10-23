@@ -1,0 +1,32 @@
+{
+    "name": "fly-ticket/flyticket",
+    "description": "simple app for fly ticker price monitoring",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "FlyTicket\\": "src/",
+            "Config\\": "src/Config/"
+        },
+        "files": [
+            "src/Api/Telegram/telegram-bot-handlers.php",
+            "src/Api/Telegram/telegram-bot-render.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "FlyTicket\\Tests\\": "tests/"
+        }
+    },
+    "authors": [
+        {
+            "name": "VP"
+        }
+    ],
+    "require": {
+        "php": "^8.5",
+        "ext-curl": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^13.4"
+    }
+}

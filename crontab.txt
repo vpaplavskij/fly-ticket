@@ -1,0 +1,18 @@
+# fly-ticket — server crontab (install: crontab /path/to/fly-ticket/crontab.txt)
+# All jobs point at src/jobs.php; logs go to storage/logs/ (see app-YYYY-MM-DD.log).
+
+# Fetch prices 4×/day: 06:00, 11:00, 16:00, 20:00
+0 6,11,16,20 * * * cd /home/kinder/Documents/fly-ticket && php src/jobs.php fetch >> storage/logs/cron.log 2>&1
+
+# Daily price report (fan-out to every configured bot) at 08:00.
+# Each bot reports to its own chat — see runReportJob() in src/jobs.php.
+0 8 * * * cd /home/kinder/Documents/fly-ticket && php src/jobs.php report >> storage/logs/cron.log 2>&1
+
+# Keep the bots alive: restart if not running (every minute).
+# `php src/jobs.php bot` spawns one poller per configured bot and waits on all,
+# so a single watchdog line covers every bot. The pgrep pattern matches the
+# jobs.php invocation; each child is "php ... telegram-bot.php <name>".
+* * * * * pgrep -f "php src/jobs.php bot" > /dev/null || (cd /home/kinder/Documents/fly-ticket && nohup php src/jobs.php bot >> storage/logs/bot.log 2>&1 &)
+
+# Log retention: remove log files older than 30 days
+0 3 * * * find /home/kinder/Documents/fly-ticket/storage/logs -name "app-*.log" -mtime +30 -delete >> /dev/null 2>&1
