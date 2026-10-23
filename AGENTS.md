@@ -2,8 +2,7 @@
 
 Flight-price monitor: PHP 8.5 CLI + cron app (no framework, no web server). Fetches one-way fares from three sources 4×/day (06:00, 11:00, 16:00, 20:00) into MySQL and reports via a Telegram bot with inline-button UIs.
 
-- `TASKS.md` holds the work queue (work strictly in order, one task per session); `.env` is gitignored and never committed.
-- **When you finish a task, mark it `[x]` in `TASKS.md`** — keep the file as the single source of truth for what's done.
+- `.env` is gitignored and never committed.
 
 ## Quick start / commands
 
