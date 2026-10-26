@@ -4,16 +4,6 @@ A lightweight flight-price monitor that watches a few city pairs, stores the far
 
 No web server, no framework — just PHP 8.5 CLI scripts driven by cron.
 
-## What it does
-
-- Fetches one-way fares from three sources into a shared database, **4× a day** (06:00, 11:00, 16:00, 20:00):
-  - **Ryanair** — RIX ⇄ MLA and RIX ⇄ PFO (via the Ryanair MCP endpoint)
-  - **AirBaltic** — RIX ⇄ MLA (Malta) and RIX ⇄ LCA (Cyprus, seasonal)
-- Keeps a rolling price history so you can see how fares move.
-- Sends a daily price report and answers interactive commands (`/today`, `/nextweek`, `/nextmonth`, …) through Telegram, with inline buttons for browsing routes, switching direction, and jumping straight to a booking link.
-
-> **RIX** = Riga (Latvia). The default monitored pair is **Riga ⇄ Malta**, with extra legs to Cyprus offered by the bot's main menu.
-
 ## Requirements
 
 - PHP 8.5 with `curl` and `pdo_mysql`
