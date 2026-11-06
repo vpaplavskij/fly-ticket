@@ -4,6 +4,16 @@ A lightweight flight-price monitor that watches a few city pairs, stores the far
 
 No web server, no framework — just PHP 8.5 CLI scripts driven by cron.
 
+## What it looks like
+
+The bot answers with a price list plus inline buttons to switch views and routes:
+
+| Next week (7 days) — Malta ⇄ Latvia | Upcoming prices — Tallinn → Larnaca (Cyprus) |
+|---|---|
+| ![Next week view](docs/screenshots/next-week-malta.jpg) | ![Upcoming prices view](docs/screenshots/upcoming-prices-cyprus.jpg) |
+
+Each row is one day with the cheapest fare found across all sources, a country flag, and the airline. The buttons at the bottom let you jump to today's flights, other time windows, the reverse direction, or back to the main menu.
+
 ## Requirements
 
 - PHP 8.5 with `curl` and `pdo_mysql`
