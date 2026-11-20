@@ -1,6 +1,12 @@
 # fly-ticket — server crontab (install: crontab /path/to/fly-ticket/crontab.txt)
 # All jobs point at src/jobs.php; logs go to storage/logs/ (see app-YYYY-MM-DD.log).
 
+# cron does not read .bashrc, so `php` would resolve to the system build, which
+# on this machine lacks pdo_pgsql. Put herd-lite's PHP first on PATH (its ini is
+# scanned from the binary's own directory). Harmless elsewhere; drop this line
+# if the server's system PHP already has pdo_pgsql.
+PATH=/home/kinder/.config/herd-lite/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 # Fetch prices 4×/day: 06:00, 11:00, 16:00, 20:00
 0 6,11,16,20 * * * cd /home/kinder/Documents/fly-ticket && php src/jobs.php fetch >> storage/logs/cron-$(date +\%F).log 2>&1
 

@@ -34,8 +34,11 @@ final class EnvLoader
             $value         = preg_replace('/^["\'](.*)["\']$/s', '$1', $value);
 
             // Real environment wins: a var already set by the process (shell,
-            // systemd, Docker, phpunit) must not be overwritten by .env.
-            if (getenv($key) !== false) {
+            // systemd, Docker, phpunit) must not be overwritten by .env. But
+            // $_ENV must still carry it — CLI does not populate $_ENV from the
+            // process env, and BotRegistry discovers bots by scanning $_ENV.
+            if (($real = getenv($key)) !== false) {
+                $_ENV[$key] = $real;
                 continue;
             }
 

@@ -63,7 +63,8 @@ src/
 - **Seasonal routes legitimately go empty** (Cyprus in winter). Empty results are not bugs.
 - **Bot watchdog pgrep pattern is load-bearing.** `crontab.txt` matches `telegram-bot[.]php` (the child poller, not `jobs.php`); the `[.]` prevents pgrep from self-matching cron's own shell. README shows the older `php src/jobs.php bot` pattern — crontab.txt is the truth; don't "fix" either pattern.
 - **Retention:** `\Database::prunePriceHistory(90)` runs once per fetch cycle from `jobs.php fetch` (after the children finish). Don't add per-run DELETEs.
-- **`.env` never overrides a real environment variable** (`Config\EnvLoader`), and a missing `.env` is a valid deployment (Docker/systemd inject the env). Don't "fix" either behavior — `phpunit.xml.dist` relies on it to point tests at `fly_ticket_test`.
+- **`.env` never overrides a real environment variable** (`Config\EnvLoader`), and a missing `.env` is a valid deployment (Docker/systemd inject the env). EnvLoader still mirrors real-env values into `$_ENV` — the CLI does not populate `$_ENV` from the process env and `BotRegistry` discovers bots by scanning `$_ENV`, so dropping that mirror breaks bot startup. Don't "fix" any of this; `phpunit.xml.dist` relies on the precedence to point tests at `fly_ticket_test`.
+- **cron does not read `.bashrc`.** `crontab.txt` pins `PATH` at the top so `php` resolves to herd-lite's build (the system `/usr/bin/php8.5` has no `pdo_pgsql` conf.d entry); jobs.php children inherit it via `PHP_BINARY`. Keep whichever PHP has `pdo_pgsql` first on that PATH.
 
 ## Testing
 

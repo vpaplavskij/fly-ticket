@@ -67,7 +67,7 @@ For day-to-day operation you don't run these by hand — **cron does**. The sche
 0 3 * * *         find /path/to/fly-ticket/storage/logs -name "*.log" -mtime +30 -delete >> /dev/null 2>&1
 ```
 
-Install it with `crontab crontab.txt` (adjust the paths first). The watchdog line means you never have to think about keeping the bot alive — if it dies, cron brings it back within a minute.
+Install it with `crontab crontab.txt` (adjust the paths first). The watchdog line means you never have to think about keeping the bot alive — if it dies, cron brings it back within a minute. cron does not read `.bashrc`, so `crontab.txt` pins `PATH` at the top — on this machine `php` is herd-lite's build (the system `php` lacks `pdo_pgsql`); keep whichever PHP has `pdo_pgsql` first on that PATH.
 
 ## Configuration
 
