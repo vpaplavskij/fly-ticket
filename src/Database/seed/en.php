@@ -53,7 +53,7 @@ return [
     'help_next3months'      => '<b>/next3months</b> — next 3 months lowest prices',
     'help_buy_label'        => '<b>Booking link</b>',
     'help_buy'              => '<b>/buy</b> &lt;date&gt; — booking link for the cheapest flight on that date (e.g. /buy Nov 05)',
-    'help_information'      => '<b>/info</b> — bot info (alias of /help)',
+    'help_information'      => '<b>/info</b> (/information) — bot info (alias of /help)',
     'help_help'             => '<b>/help</b> — show this help',
 
     // ── Language ──────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ class TranslationRepository
     public function all(): array
     {
         $rows = $this->pdo->query(
-            'SELECT lang_code, `key`, value FROM ' . Schema::TRANSLATIONS_TABLE
+            'SELECT lang_code, key, value FROM ' . Schema::TRANSLATIONS_TABLE
         )->fetchAll(\PDO::FETCH_ASSOC);
 
         $map = [];
@@ -36,9 +36,9 @@ class TranslationRepository
     public function upsert(string $lang, string $key, string $value): void
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO ' . Schema::TRANSLATIONS_TABLE . ' (lang_code, `key`, value)
+            'INSERT INTO ' . Schema::TRANSLATIONS_TABLE . ' (lang_code, key, value)
              VALUES (:lang, :key, :value)
-             ON DUPLICATE KEY UPDATE value = VALUES(value)'
+             ON CONFLICT (lang_code, key) DO UPDATE SET value = EXCLUDED.value'
         );
         $stmt->execute([
             ':lang'  => $lang,

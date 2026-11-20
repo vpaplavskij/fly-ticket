@@ -29,12 +29,11 @@ class UserRepository
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO users (chat_id, lang) VALUES (:id, :lang)
-             ON DUPLICATE KEY UPDATE lang = :lang2',
+             ON CONFLICT (chat_id) DO UPDATE SET lang = EXCLUDED.lang, updated_at = now()',
         );
         $stmt->execute([
-            ':id'    => $chatId,
-            ':lang'  => $lang,
-            ':lang2' => $lang,
+            ':id'   => $chatId,
+            ':lang' => $lang,
         ]);
     }
 }

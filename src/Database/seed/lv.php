@@ -51,7 +51,7 @@ return [
     'help_next3months'      => '<b>/next3months</b> — nākošo 3 mēnešu zemākās cenas',
     'help_buy_label'        => '<b>Pasūtīšanas saite</b>',
     'help_buy'              => '<b>/buy</b> &lt;datums&gt; — pasūtīšanas saite vislētākajam lidojumam šajā datumā (piem. /buy 05 Nov)',
-    'help_information'      => '<b>/info</b> — informācija par botu (alias no /help)',
+    'help_information'      => '<b>/info</b> (/information) — informācija par botu (alias no /help)',
     'help_help'             => '<b>/help</b> — parādīt šo palīdzību',
 
     // ── Language ──────────────────────────────────────────────────────

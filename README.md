@@ -1,6 +1,6 @@
 # fly-ticket ✈️
 
-A lightweight flight-price monitor that watches a few city pairs, stores the fares in MySQL, and reports them to you through a **Telegram bot** with tap-to-navigate buttons.
+A lightweight flight-price monitor that watches a few city pairs, stores the fares in PostgreSQL, and reports them to you through a **Telegram bot** with tap-to-navigate buttons.
 
 No web server, no framework — just PHP 8.5 CLI scripts driven by cron.
 
@@ -16,8 +16,8 @@ Each row is one day with the cheapest fare found across all sources, a country f
 
 ## Requirements
 
-- PHP 8.5 with `curl` and `pdo_mysql`
-- MySQL (or MariaDB)
+- PHP 8.5 with `curl` and `pdo_pgsql`
+- PostgreSQL
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - [Composer](https://getcomposer.org/)
 
@@ -29,7 +29,7 @@ composer install
 
 # 2. Create your .env from the template and fill in real values
 cp .env.example .env
-#    → set DB_* to your MySQL connection
+#    → set DB_* to your PostgreSQL connection
 #    → set TELEGRAM_<NAME>_TOKEN to your bot token
 
 # 3. Verify everything is wired up (checks .env + DB connectivity)
@@ -78,7 +78,7 @@ Each bot can also be tuned with optional per-bot overrides (same `<NAME>`):
 | `TELEGRAM_<NAME>_TOKEN` | **Required.** The bot token from @BotFather. |
 | `TELEGRAM_<NAME>_ROUTE` | Override the primary route, e.g. `RIX MLA`. Defaults to the global route in `src/Config/Route.php`. |
 | `TELEGRAM_<NAME>_EXTRA_ROUTES` | Extra pairs offered alongside the primary, e.g. `RIX LCA RIX PFO`. Each gets its own menu buttons. |
-| `TELEGRAM_<NAME>_CHAT_ID` | Where the daily report posts. Falls back to a shared test chat when unset. |
+| `TELEGRAM_<NAME>_CHAT_ID` | Where the daily report posts. Required — the report is skipped (with a warning) when unset. |
 
 Full details (with placeholders) are in [`.env.example`](.env.example).
 

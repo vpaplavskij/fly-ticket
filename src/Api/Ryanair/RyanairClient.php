@@ -303,8 +303,10 @@ class RyanairClient
             'code'             => $flightNumber . '-' . $date,
             'flight_number'    => $flightNumber,
             'depart_date'      => $date,
-            'dep_time'         => $f['depTime'] ?? '00:00',
-            'arr_time'         => $f['arrTime'] ?? '00:00',
+            // Null when the API omits them — the caller skips the day rather
+            // than storing an invented 12:00→15:00 schedule.
+            'dep_time'         => $f['depTime'] ?? null,
+            'arr_time'         => $f['arrTime'] ?? null,
             'duration'         => $f['duration'] ?? null,
             'dep_airport'      => $f['depAirport'] ?? $origin,
             'arr_airport'      => $f['arrAirport'] ?? $destination,

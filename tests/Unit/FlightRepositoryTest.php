@@ -167,6 +167,91 @@ class FlightRepositoryTest extends TestCase
         $this->assertEquals((float) $rowsStr[0]['price'], (float) $rowsArr[0]['price']);
     }
 
+    public function test_deleteUnseen_removes_stale_rows_and_keeps_seen_and_other_sources(): void
+    {
+        $repo = $this->repo();
+        $day  = date('Y-m-d', strtotime('+1 day'));
+
+        $this->seedFlight(['code' => 'FR-old-' . $day, 'depart' => $day . ' 07:00:00', 'arrive' => $day . ' 09:30:00', 'price' => '45.00', 'company' => 'Ryanair', 'flight_number' => 'FR1', 'source' => 'ryanair']);
+        $this->seedFlight(['code' => 'FR-new-' . $day, 'depart' => $day . ' 13:00:00', 'arrive' => $day . ' 15:30:00', 'price' => '60.00', 'company' => 'Ryanair', 'flight_number' => 'FR2', 'source' => 'ryanair']);
+        $this->seedFlight(['code' => 'BT-' . $day, 'depart' => $day . ' 08:00:00', 'arrive' => $day . ' 10:30:00', 'price' => '90.00', 'company' => 'AirBaltic', 'flight_number' => 'BT1', 'source' => null]);
+
+        $deleted = $repo->deleteUnseen(self::TEST_ORIGIN, self::TEST_DEST, 'ryanair', ['FR-new-' . $day], $day, $day);
+        $this->assertSame(1, $deleted, 'unseen ryanair row must be deleted');
+
+        $rows = $repo->getFlightsForDay(self::TEST_ORIGIN, self::TEST_DEST, $day);
+        $codes = array_column($rows, 'code');
+        $this->assertContains('FR-new-' . $day, $codes, 'seen row must survive');
+        $this->assertContains('BT-' . $day, $codes, 'NULL-source row must survive a ryanair-scoped delete');
+        $this->assertNotContains('FR-old-' . $day, $codes);
+
+        // Rows outside the fetch window are never touched; an empty code list
+        // deletes the whole scoped window (empty-run semantics), so FR-new
+        // (ryanair, inside the window) goes away and FR-far (+30 days) survives.
+        $far = date('Y-m-d', strtotime('+30 days'));
+        $this->seedFlight(['code' => 'FR-far-' . $far, 'depart' => $far . ' 07:00:00', 'arrive' => $far . ' 09:30:00', 'price' => '45.00', 'company' => 'Ryanair', 'flight_number' => 'FR9', 'source' => 'ryanair']);
+        $this->assertSame(1, $repo->deleteUnseen(self::TEST_ORIGIN, self::TEST_DEST, 'ryanair', [], $day, $day));
+        $this->assertContains('FR-far-' . $far, array_column($repo->getFlightsForDay(self::TEST_ORIGIN, self::TEST_DEST, $far), 'code'));
+        $this->assertNotContains('FR-new-' . $day, array_column($repo->getFlightsForDay(self::TEST_ORIGIN, self::TEST_DEST, $day), 'code'));
+    }
+
+    public function test_deleteUnseen_with_empty_codes_removes_whole_scoped_window(): void
+    {
+        $repo = $this->repo();
+        $day  = date('Y-m-d', strtotime('+1 day'));
+
+        $this->seedFlight(['code' => 'BT-a-' . $day, 'depart' => $day . ' 08:00:00', 'arrive' => $day . ' 10:30:00', 'price' => '90.00', 'company' => 'AirBaltic', 'flight_number' => 'BT1', 'source' => null]);
+        $this->seedFlight(['code' => 'FR-b-' . $day, 'depart' => $day . ' 07:00:00', 'arrive' => $day . ' 09:30:00', 'price' => '45.00', 'company' => 'Ryanair', 'flight_number' => 'FR1', 'source' => 'ryanair']);
+
+        // A NULL-source delete (AirBaltic run with zero flights) wipes its own
+        // rows but leaves Ryanair's on the same pair untouched.
+        $this->assertSame(1, $repo->deleteUnseen(self::TEST_ORIGIN, self::TEST_DEST, null, [], $day, $day));
+        $codes = array_column($repo->getFlightsForDay(self::TEST_ORIGIN, self::TEST_DEST, $day), 'code');
+        $this->assertSame(['FR-b-' . $day], $codes);
+    }
+
+    public function test_upsertFlights_stores_estimated_and_getTopPerDay_exposes_it(): void
+    {
+        $repo = $this->repo();
+        $day  = date('Y-m-d', strtotime('+1 day'));
+
+        $repo->upsertFlights([
+            ['code' => 'EST-' . $day, 'origin' => self::TEST_ORIGIN, 'destination' => self::TEST_DEST,
+                'depart' => $day . ' 08:00:00', 'arrive' => $day . ' 10:30:00', 'price' => '55.00',
+                'company' => 'AirBaltic', 'flight_number' => 'BT1', 'source' => null, 'estimated' => true],
+        ]);
+
+        $rows = $repo->getTopPerDay(self::TEST_ORIGIN, self::TEST_DEST, $day, $day);
+        $this->assertCount(1, $rows);
+        $this->assertTrue($rows[0]['estimated'], 'month-lowest fallback must be flagged estimated');
+        // getFlightsForDay returns the raw TINYINT ('1'/'0') — handlers test it
+        // with !empty(), so the test casts it the same way.
+        $this->assertTrue((bool) $repo->getFlightsForDay(self::TEST_ORIGIN, self::TEST_DEST, $day)[0]['estimated']);
+
+        // Re-upsert without the flag must clear it back to false.
+        $repo->upsertFlights([
+            ['code' => 'EST-' . $day, 'origin' => self::TEST_ORIGIN, 'destination' => self::TEST_DEST,
+                'depart' => $day . ' 08:00:00', 'arrive' => $day . ' 10:30:00', 'price' => '55.00',
+                'company' => 'AirBaltic', 'flight_number' => 'BT1', 'source' => null],
+        ]);
+        $this->assertFalse((bool) $repo->getFlightsForDay(self::TEST_ORIGIN, self::TEST_DEST, $day)[0]['estimated']);
+    }
+
+    public function test_getTopPerDay_notBefore_excludes_departed_flights(): void
+    {
+        $repo = $this->repo();
+        $today = date('Y-m-d');
+
+        $this->seedFlight(['code' => 'gone-' . $today, 'depart' => $today . ' 06:00:00', 'arrive' => $today . ' 08:30:00', 'price' => '30.00', 'company' => 'Ryanair', 'flight_number' => 'FR1', 'source' => 'ryanair']);
+        $this->seedFlight(['code' => 'live-' . $today, 'depart' => $today . ' 23:59:00', 'arrive' => $today . ' 23:59:59', 'price' => '80.00', 'company' => 'AirBaltic', 'flight_number' => 'BT1', 'source' => null]);
+
+        $rows = $repo->getTopPerDay(self::TEST_ORIGIN, self::TEST_DEST, $today, $today, 3, date('Y-m-d H:i:s'));
+        $this->assertCount(1, $rows);
+        $this->assertSame('BT1', $rows[0]['flight_number'], 'departed flight must be excluded by notBefore');
+        // Without the filter the departed flight still appears.
+        $this->assertCount(2, $repo->getTopPerDay(self::TEST_ORIGIN, self::TEST_DEST, $today, $today));
+    }
+
     public function test_upsertFlights_and_recordHistoryBatch_write_both_tables(): void
     {
         $repo = $this->repo();

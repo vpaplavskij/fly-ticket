@@ -120,9 +120,11 @@ function countryPairLabel(array $pair): string
 
 // ── Small helpers ─────────────────────────────────────────────────────
 
-function fmtPrice(float $price): string
+function fmtPrice(float $price, bool $estimated = false): string
 {
-    return '€' . number_format($price, 2);
+    // ≈ marks an estimated price (month's lowest fare used when the live
+    // per-date fare was missing) instead of a real quoted one.
+    return ($estimated ? '≈' : '') . '€' . number_format($price, 2);
 }
 
 /**
@@ -376,13 +378,15 @@ function buildToday(FlightRepository $repo, string $origin, string $destination)
     $altOrigins = Route::alternatives($origin, $destination);
     $altDests   = Route::alternativeDestinations($origin);
     $allOrigins = array_merge([$origin], array_column($altOrigins, 0));
-    $rows       = $repo->getTopPerDay($allOrigins, $destination, $date, $date, 3);
+    // Only flights that haven't departed yet — a 08:00 flight is useless at 14:00.
+    $now        = date('Y-m-d H:i:s');
+    $rows       = $repo->getTopPerDay($allOrigins, $destination, $date, $date, 3, $now);
 
     // Destination alternatives: the alternative airport flying to the SAME
     // destination (e.g. PFO→RIX when viewing LCA→RIX).
     $altDestRows = [];
     foreach ($altDests as $altDest) {
-        $altDestRows[$altDest] = $repo->getTopPerDay($altDest, $destination, $date, $date, 3);
+        $altDestRows[$altDest] = $repo->getTopPerDay($altDest, $destination, $date, $date, 3, $now);
     }
 
     if (empty($rows) && empty(array_filter($altDestRows))) {
@@ -411,7 +415,7 @@ function buildToday(FlightRepository $repo, string $origin, string $destination)
         $co  = htmlspecialchars(fmtCompany($r['source'] ?? null, $r));
         // Badge the cheapest flight so it stands out.
         $badge   = ($i === 0) ? Translator::t('lowest_badge') . ' ' : '';
-        $lines[] = "{$badge}{$dep} → {$arr}  ·  {$co}  ·  <b>" . fmtPrice((float) $r['price']) . "</b>" . buyLinkHtml($r['buy_link']);
+        $lines[] = "{$badge}{$dep} → {$arr}  ·  {$co}  ·  <b>" . fmtPrice((float) $r['price'], $r['estimated'] ?? false) . "</b>" . buyLinkHtml($r['buy_link']);
     }
 
     // Alternatives: one compact line per alternative origin (cheapest flight),
@@ -429,7 +433,7 @@ function buildToday(FlightRepository $repo, string $origin, string $destination)
             $co      = htmlspecialchars(fmtCompany($r['source'] ?? null, $r));
             $flag    = Route::flagFor($altOrigin);
             $label   = Route::airportName($altOrigin) . ' → ' . Route::airportName($destination);
-            $lines[] = "  {$flag} <b>{$label}</b> · {$dep} → {$arr} · {$co} · <b>" . fmtPrice((float) $r['price']) . "</b>" . buyLinkHtml($r['buy_link']);
+            $lines[] = "  {$flag} <b>{$label}</b> · {$dep} → {$arr} · {$co} · <b>" . fmtPrice((float) $r['price'], $r['estimated'] ?? false) . "</b>" . buyLinkHtml($r['buy_link']);
         }
     }
 
@@ -453,7 +457,7 @@ function buildToday(FlightRepository $repo, string $origin, string $destination)
         $co      = htmlspecialchars(fmtCompany($r['source'] ?? null, $r));
         $flag    = Route::flagFor($altDest);
         $label   = Route::airportName($altDest) . ' → ' . Route::airportName($destination);
-        $lines[] = "  {$flag} <b>{$label}</b> · {$dep} → {$arr} · {$co} · <b>" . fmtPrice((float) $r['price']) . "</b>" . buyLinkHtml($r['buy_link']);
+        $lines[] = "  {$flag} <b>{$label}</b> · {$dep} → {$arr} · {$co} · <b>" . fmtPrice((float) $r['price'], $r['estimated'] ?? false) . "</b>" . buyLinkHtml($r['buy_link']);
     }
 
     $count   = count($primaryRows);
@@ -539,7 +543,7 @@ function buildNext(FlightRepository $repo, string $origin, string $destination, 
         $co       = htmlspecialchars(fmtCompany($cheapest['source'] ?? null, $cheapest));
         // Flag the cheapest available day's origin.
         $flag       = empty($altRoutes) ? '' : Route::flagFor($cheapest['origin'] ?? $origin);
-        $dayLines[] = "{$flag}{$day}  <b>" . fmtPrice((float) $cheapest['price']) . "</b> · {$co}" . buyLinkHtml($cheapest['buy_link']);
+        $dayLines[] = "{$flag}{$day}  <b>" . fmtPrice((float) $cheapest['price'], $cheapest['estimated'] ?? false) . "</b> · {$co}" . buyLinkHtml($cheapest['buy_link']);
     }
 
     // "Cheapest days" block: top 5 lowest prices in the range, sorted by price.
@@ -559,7 +563,7 @@ function buildNext(FlightRepository $repo, string $origin, string $destination, 
         $flag  = Route::flagFor($r['origin'] ?? $origin);
         $badge = ($i === 0) ? '🏷️ ' : '';
 
-        $cheapestLines[] = "  {$badge}{$flag} {$day}  <b>" . fmtPrice((float) $r['price']) . "</b> · {$co}" . buyLinkHtml($r['buy_link']);
+        $cheapestLines[] = "  {$badge}{$flag} {$day}  <b>" . fmtPrice((float) $r['price'], $r['estimated'] ?? false) . "</b> · {$co}" . buyLinkHtml($r['buy_link']);
     }
 
     // Append alternative-origin lines after the primary day line.
@@ -574,8 +578,8 @@ function buildNext(FlightRepository $repo, string $origin, string $destination, 
             $day             = fmtDate($r['date']);
             $co              = htmlspecialchars(fmtCompany($r['source'] ?? null, $r));
             $flag            = Route::flagFor($altOrigin);
-            $label           = Route::airportName($altOrigin) . ' → ' . Route::airportName($destination);
-            $cheapestLines[] = "  {$flag} <b>{$label}</b> · {$day} · {$co} · <b>" . fmtPrice((float) $r['price']) . "</b>" . buyLinkHtml($r['buy_link']);
+            $altLabel        = Route::airportName($altOrigin) . ' → ' . Route::airportName($destination);
+            $cheapestLines[] = "  {$flag} <b>{$altLabel}</b> · {$day} · {$co} · <b>" . fmtPrice((float) $r['price'], $r['estimated'] ?? false) . "</b>" . buyLinkHtml($r['buy_link']);
         }
     }
 
@@ -590,8 +594,8 @@ function buildNext(FlightRepository $repo, string $origin, string $destination, 
         $day             = fmtDate($r['date']);
         $co              = htmlspecialchars(fmtCompany($r['source'] ?? null, $r));
         $flag            = Route::flagFor($altDest);
-        $label           = Route::airportName($altDest) . ' → ' . Route::airportName($destination);
-        $cheapestLines[] = "  {$flag} <b>{$label}</b> · {$day} · {$co} · <b>" . fmtPrice((float) $r['price']) . "</b>" . buyLinkHtml($r['buy_link']);
+        $altLabel        = Route::airportName($altDest) . ' → ' . Route::airportName($destination);
+        $cheapestLines[] = "  {$flag} <b>{$altLabel}</b> · {$day} · {$co} · <b>" . fmtPrice((float) $r['price'], $r['estimated'] ?? false) . "</b>" . buyLinkHtml($r['buy_link']);
     }
 
     // Chunk the lines into messages that each fit under Telegram's 4096 cap.
@@ -809,7 +813,7 @@ function handleBuy(FlightRepository $repo, string $dateArg, ?string $origin = nu
         $co,
         $dep,
         $arr,
-        fmtPrice((float) $f['price']),
+        fmtPrice((float) $f['price'], !empty($f['estimated'])),
         htmlspecialchars($f['buy_link'], ENT_QUOTES),
         Translator::t('open_booking_link'),
     ), true];

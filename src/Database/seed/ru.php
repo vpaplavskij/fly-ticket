@@ -51,7 +51,7 @@ return [
     'help_next3months'      => '<b>/next3months</b> — минимальные цены на ближайшие 3 месяца',
     'help_buy_label'        => '<b>Ссылка на бронирование</b>',
     'help_buy'              => '<b>/buy</b> &lt;дата&gt; — ссылка на самый дешёвый рейс в эту дату (напр. /buy 05 Nov)',
-    'help_information'      => '<b>/info</b> — информация о боте (алиас /help)',
+    'help_information'      => '<b>/info</b> (/information) — информация о боте (алиас /help)',
     'help_help'             => '<b>/help</b> — показать эту справку',
 
     // ── Language ──────────────────────────────────────────────────────

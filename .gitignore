@@ -10,6 +10,7 @@ storage/logs/*.log
 # PHPUnit test-run cache (regenerated on every run; lives in vendor/bin/).
 .phpunit.result.cache
 vendor/bin/.phpunit.result.cache
+.phpunit.cache/
 
 # ── Tooling / IDE noise ───────────────────────────────────────────────
 .continue/

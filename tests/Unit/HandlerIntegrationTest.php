@@ -47,10 +47,12 @@ class HandlerIntegrationTest extends TestCase
         $today = date('Y-m-d');
 
         // Two flights today: one AirBaltic (source NULL), one Ryanair.
+        // Late times so the "not departed yet" filter never drops them
+        // (shortcut: the suite fails only when run after 23:55 local time).
         $this->seedFlight([
             'code'          => 'BT100-' . $today,
-            'depart'        => $today . ' 08:00:00',
-            'arrive'        => $today . ' 10:30:00',
+            'depart'        => $today . ' 23:55:00',
+            'arrive'        => $today . ' 23:58:00',
             'price'         => '250.00',
             'company'       => 'AirBaltic',
             'flight_number' => 'BT100',
@@ -59,8 +61,8 @@ class HandlerIntegrationTest extends TestCase
         ]);
         $this->seedFlight([
             'code'          => 'FR200-' . $today,
-            'depart'        => $today . ' 09:15:00',
-            'arrive'        => $today . ' 11:45:00',
+            'depart'        => $today . ' 23:56:00',
+            'arrive'        => $today . ' 23:59:00',
             'price'         => '77.00',
             'company'       => 'Ryanair',
             'flight_number' => 'FR200',
@@ -74,11 +76,11 @@ class HandlerIntegrationTest extends TestCase
         $this->assertStringContainsString("✈️ <b>Today's flights</b>", $reply);
 
         // Both flights present with correct times, company, and price.
-        $this->assertStringContainsString('08:00 → 10:30', $reply);
+        $this->assertStringContainsString('23:55 → 23:58', $reply);
         $this->assertStringContainsString('AirBaltic', $reply);
         $this->assertStringContainsString('€250.00', $reply);
 
-        $this->assertStringContainsString('09:15 → 11:45', $reply);
+        $this->assertStringContainsString('23:56 → 23:59', $reply);
         $this->assertStringContainsString('Ryanair', $reply);
         $this->assertStringContainsString('€77.00', $reply);
 
@@ -95,13 +97,13 @@ class HandlerIntegrationTest extends TestCase
         $today = date('Y-m-d');
 
         // Seed out of price order; handler must sort cheapest-first so the
-        // lowest price leads the list.
+        // lowest price leads the list. Late times — see the /today filter note.
         $this->seedFlight([
-            'code' => 'FR200-' . $today, 'depart' => $today . ' 14:00:00', 'arrive' => $today . ' 16:30:00',
+            'code' => 'FR200-' . $today, 'depart' => $today . ' 23:57:00', 'arrive' => $today . ' 23:59:00',
             'price' => '50.00', 'company' => 'Ryanair', 'flight_number' => 'FR200', 'source' => 'ryanair',
         ]);
         $this->seedFlight([
-            'code' => 'BT100-' . $today, 'depart' => $today . ' 06:00:00', 'arrive' => $today . ' 08:30:00',
+            'code' => 'BT100-' . $today, 'depart' => $today . ' 23:54:00', 'arrive' => $today . ' 23:56:00',
             'price' => '250.00', 'company' => 'AirBaltic', 'flight_number' => 'BT100', 'source' => null,
         ]);
 
@@ -109,8 +111,8 @@ class HandlerIntegrationTest extends TestCase
 
         // The cheaper flight (€50.00) must lead the list — /today is sorted
         // cheapest-first so the lowest price is always at the top.
-        $posCheap  = strpos($reply, '14:00 → 16:30');
-        $posEarly  = strpos($reply, '06:00 → 08:30');
+        $posCheap  = strpos($reply, '23:57 → 23:59');
+        $posEarly  = strpos($reply, '23:54 → 23:56');
         $posLate   = $posEarly;
         $this->assertNotFalse($posCheap);
         $this->assertNotFalse($posEarly);

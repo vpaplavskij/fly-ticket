@@ -52,10 +52,17 @@ class AirbalticClient
 
             foreach (($entry['dates'] ?? []) as $date) {
                 // Prefer the exact live per-date fare; fall back to month's lowest.
+                // The monthly fallback is an ESTIMATE — flag it so the bot shows
+                // "≈" instead of presenting it as a quoted price.
                 // If neither has a price the fare is genuinely unknown — skip the
                 // date rather than storing a 0.0 (which would surface as a €0.00
                 // "cheapest" ticket in the bot, since getTopPerDay sorts by price).
-                $price = $datePrices[$date] ?? $monthPrices[substr($date, 0, 7)] ?? null;
+                $price     = $datePrices[$date] ?? null;
+                $estimated = false;
+                if ($price === null) {
+                    $price     = $monthPrices[substr($date, 0, 7)] ?? null;
+                    $estimated = true;
+                }
                 if ($price === null || $price <= 0) {
                     continue;
                 }
@@ -67,6 +74,7 @@ class AirbalticClient
                     'dep_time'      => $depTime,
                     'arr_time'      => $arrTime,
                     'price'         => $price,
+                    'estimated'     => $estimated,
                     'deep_link'     => $this->buildDeepLink($origin, $destination, $date),
                 ];
             }
@@ -220,8 +228,14 @@ class AirbalticClient
 
             foreach (($entry['dates'] ?? []) as $date) {
                 // Same unknown-price guard as the sequential path: drop dates
-                // with no live or monthly fare instead of storing 0.0.
-                $price = $datePrices[$date] ?? $monthPrices[substr($date, 0, 7)] ?? null;
+                // with no live or monthly fare instead of storing 0.0; flag the
+                // monthly fallback as estimated.
+                $price     = $datePrices[$date] ?? null;
+                $estimated = false;
+                if ($price === null) {
+                    $price     = $monthPrices[substr($date, 0, 7)] ?? null;
+                    $estimated = true;
+                }
                 if ($price === null || $price <= 0) {
                     continue;
                 }
@@ -233,6 +247,7 @@ class AirbalticClient
                     'dep_time'      => $depTime,
                     'arr_time'      => $arrTime,
                     'price'         => $price,
+                    'estimated'     => $estimated,
                     'deep_link'     => $this->buildDeepLink($origin, $destination, $date),
                 ];
             }

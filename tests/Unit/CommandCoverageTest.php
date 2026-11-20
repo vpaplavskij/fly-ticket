@@ -113,8 +113,10 @@ class CommandCoverageTest extends TestCase
     {
         $this->seedFlight([
             'code'          => 'COV-' . $date . '-' . (int) $price,
-            'depart'        => $date . ' 08:00:00',
-            'arrive'        => $date . ' 10:30:00',
+            // Late time so /today's "not departed yet" filter keeps today's row
+            // (shortcut: fails only if run after 23:59 local time).
+            'depart'        => $date . ' 23:59:00',
+            'arrive'        => $date . ' 23:59:30',
             'price'         => (string) $price,
             'company'       => 'AirBaltic',
             'flight_number' => 'BT900',

@@ -37,11 +37,11 @@ try {
         // ── Fetch from AirBaltic public API (free, no API key) ────────────
         $flights = $airbaltic->getCheapestOneWay($origin, $destination, $dateFrom, $dateTo);
 
+        $rows = [];
         if (empty($flights)) {
             printf("AirBaltic: no flights found for %s → %s\n", $origin, $destination);
         } else {
             // ── Upsert to DB + record history (one transaction per route) ─
-            $rows = [];
             foreach ($flights as $f) {
                 $departDt = sprintf('%s %s:00', $f['depart_date'], $f['dep_time']);
                 $arriveDt = sprintf('%s %s:00', $f['depart_date'], $f['arr_time']);
@@ -61,14 +61,16 @@ try {
                     'flight_number' => $f['flight_number'],
                     'source'        => null,
                     'buy_link'      => $f['deep_link'] ?? null,
+                    'estimated'     => $f['estimated'] ?? false,
                 ];
 
                 printf(
-                    "AirBaltic: %s | %s → %s | %s EUR\n",
+                    "AirBaltic: %s | %s → %s | %s EUR%s\n",
                     $f['flight_number'],
                     $f['dep_time'],
                     $f['arr_time'],
-                    number_format($f['price'], 2)
+                    number_format($f['price'], 2),
+                    (($f['estimated'] ?? false) ? ' (estimated)' : '')
                 );
             }
 
@@ -77,6 +79,14 @@ try {
 
             printf("AirBaltic: saved %d flights (upsert + history)\n", $saved);
             Logger::info('AirBaltic fetch complete', ['origin' => $origin, 'destination' => $destination, 'flights' => $saved]);
+        }
+
+        // Drop rows this run did not see (sold-out/vanished flights). Scoped to
+        // this route + NULL source (AirBaltic's MLA rows), so Ryanair's rows on
+        // the same pair are untouched.
+        $stale = $repo->deleteUnseen($origin, $destination, null, array_column($rows, 'code'), $dateFrom, $dateTo);
+        if ($stale > 0) {
+            printf("AirBaltic: removed %d stale row(s) for %s → %s\n", $stale, $origin, $destination);
         }
     }
 

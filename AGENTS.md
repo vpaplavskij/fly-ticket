@@ -1,6 +1,6 @@
 # AGENTS.md — fly-ticket
 
-Flight-price monitor: PHP 8.5 CLI + cron app (no framework, no web server). Fetches one-way fares from three sources 4×/day (06:00, 11:00, 16:00, 20:00) into MySQL and reports via a Telegram bot with inline-button UIs.
+Flight-price monitor: PHP 8.5 CLI + cron app (no framework, no web server). Fetches one-way fares from three sources 4×/day (06:00, 11:00, 16:00, 20:00) into PostgreSQL and reports via a Telegram bot with inline-button UIs.
 
 - `.env` is gitignored and never committed.
 
@@ -13,7 +13,7 @@ php src/jobs.php fetch                    # run all three fetch scripts (concurr
 php src/jobs.php bot [bot_name]           # start long-poll loop(s); watchdog restarts missing bots
 php src/jobs.php report [bot] [chat] [cmd] [arg]   # send a price report (daily 08:00 job)
 php src/Api/Telegram/render-commands.php [bot_name]  # print handler output to stdout (no token/poll loop)
-vendor/bin/phpunit --testsuite Unit       # 76 test methods — requires the live MySQL DB
+vendor/bin/phpunit --testsuite Unit       # 80 test methods — requires the live PostgreSQL DB
 vendor/bin/phpunit --testsuite Endpoints  # hits live APIs; flaky by nature
 ```
 
@@ -38,7 +38,7 @@ src/
 └── Support/Logger.php       # file logger → storage/logs/app-YYYY-MM-DD.log (daily rotation)
 ```
 
-- **Fetch pattern (all three scripts):** connect → `Schema::ensureTables($pdo)` → build row arrays → `FlightRepository::upsertFlights()` + `recordHistoryBatch()`. Never write one row at a time.
+- **Fetch pattern (all three scripts):** connect → `Schema::ensureTables($pdo)` → build row arrays → `FlightRepository::upsertFlights()` + `recordHistoryBatch()`. Never write one row at a time. After each route's upsert, `FlightRepository::deleteUnseen()` prunes rows the run did not see (scoped by route + NULL-safe `source` + fetch window); an empty result deletes the whole scoped window (seasonal routes legitimately empty). Rows whose price came from the month's-lowest fallback carry `estimated` (new `flights.estimated` column), rendered as `≈€` via `fmtPrice()`.
   - `ryanair-api.php` — RIX ⇄ MLA + RIX ⇄ PFO (both directions), via the Ryanair MCP endpoint.
   - `airbaltic-api.php` — RIX ⇄ MLA (both directions), via the AirBaltic public API.
   - `airbaltic-cyprus-api.php` — RIX ⇄ LCA (both directions, seasonal), via the AirBaltic public API.
@@ -50,7 +50,9 @@ src/
 
 ## Conventions & load-bearing constraints
 
-- **No framework.** Plain PHP; Telegram handlers are global functions in `telegram-bot-handlers.php`, not classes.
+- **No framework.** Plain PHP; Telegram handlers are plain functions (no classes) in `telegram-bot-handlers.php`, namespaced under `FlyTicket\Api\Telegram`.
+- **Composer autoload quirks:** `src/Config/` classes use namespace `Config\` (its own PSR-4 mapping, not `FlyTicket\Config`), and `telegram-bot-handlers.php` + `telegram-bot-render.php` are loaded via `autoload.files` — never `require` them directly.
+- **PostgreSQL dialect (the app migrated off MySQL).** `Schema::ensureTables()` writes PG DDL (identity columns, `TIMESTAMP`, separate `CREATE INDEX IF NOT EXISTS`); upserts use `ON CONFLICT (...) DO UPDATE SET ... = EXCLUDED.*` — never MySQL's `ON DUPLICATE KEY UPDATE`. PG has no `ON UPDATE CURRENT_TIMESTAMP`, so `updated_at` is bumped explicitly in the upserts (`now()`). Date comparisons use the cast `depart::date`, not `DATE(depart)`; NULL-safe equality is `IS NOT DISTINCT FROM`, not `<=>`; `GROUP BY` must repeat expressions, not SELECT aliases (the `dd`/`company` group keys in `getTopPerDay` are grouped by the expressions). `flights.price` is `DECIMAL(10,2)` so `MIN(price)` compares numerically — keep it numeric. Bot reconnect detection matches PG SQLSTATE `08000`/`57014`, not MySQL driver codes 2006/2013.
 - **`src/Database.php` must stay namespace-free** — it defines the global `\Database`, is `require_once`d (not autoloaded). Don't add a `namespace` line.
 - **Telegram HTML parse mode always on.** Any literal `<...>` in user-facing output that isn't valid Telegram HTML causes a 400. Escape as `&lt;…&gt;`.
 - **MCP responses can be SSE or plain JSON** — `RyanairClient::parseMcpResponse()` handles both; keep it that way.
@@ -59,6 +61,7 @@ src/
 - **`curl_multi_select()` returns -1 while handles are still running** (libcurl 8.x). Wait loops must treat `-1` as "re-exec now", not "all done".
 - **Ryanair one-way tool returns only the single cheapest flight for multi-day ranges** — queries must be 1-day ranges. Don't widen the window.
 - **Seasonal routes legitimately go empty** (Cyprus in winter). Empty results are not bugs.
+- **Bot watchdog pgrep pattern is load-bearing.** `crontab.txt` matches `telegram-bot[.]php` (the child poller, not `jobs.php`); the `[.]` prevents pgrep from self-matching cron's own shell. README shows the older `php src/jobs.php bot` pattern — crontab.txt is the truth; don't "fix" either pattern.
 - **Retention:** `\Database::prunePriceHistory(90)` runs at most once/day across all scripts (marker file). Don't add per-run DELETEs.
 
 ## Testing

@@ -10,9 +10,12 @@
 
 # Keep the bots alive: restart if not running (every minute).
 # `php src/jobs.php bot` spawns one poller per configured bot and waits on all,
-# so a single watchdog line covers every bot. The pgrep pattern matches the
-# jobs.php invocation; each child is "php ... telegram-bot.php <name>".
-* * * * * pgrep -f "php src/jobs.php bot" > /dev/null || (cd /home/kinder/Documents/fly-ticket && nohup php src/jobs.php bot >> storage/logs/bot.log 2>&1 &)
+# so a single watchdog line covers every bot. The pgrep pattern matches each
+# child poller ("php ... telegram-bot.php <name>"). NOTE: the pattern uses [.]
+# (regex for a literal dot) so it matches the real process but does NOT self-match
+# this crontab line — a bare "telegram-bot.php" would make pgrep match cron's own
+# shell and the bot would never start.
+* * * * * pgrep -f "telegram-bot[.]php" > /dev/null || (cd /home/kinder/Documents/fly-ticket && nohup php src/jobs.php bot >> storage/logs/bot.log 2>&1 &)
 
 # Log retention: remove log files older than 30 days
 0 3 * * * find /home/kinder/Documents/fly-ticket/storage/logs -name "app-*.log" -mtime +30 -delete >> /dev/null 2>&1

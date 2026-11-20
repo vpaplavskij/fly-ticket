@@ -167,16 +167,17 @@ function runReportJob(array $argv): void
     }
 
     // Form 2: fan out to every bot. Each bot's chat ID comes from its own
-    // TELEGRAM_<NAME>_CHAT_ID env var; if that is unset the bot falls back to
-    // the shared test chat (see below).
+    // TELEGRAM_<NAME>_CHAT_ID env var — there is no hardcoded default, so an
+    // unset var skips that bot's report rather than posting to a personal chat.
     Logger::info('Job: report (all bots) starting', ['bots' => BotRegistry::names()]);
     $exitCode = 0;
     foreach ($bots as $bot) {
         $chatVar = 'TELEGRAM_' . strtoupper($bot->name) . '_CHAT_ID';
         $chatId  = $_ENV[$chatVar] ?? null;
         if ($chatId === null || $chatId === '') {
-            $chatId = '833934506'; // fallback: shared test group (set TELEGRAM_<NAME>_CHAT_ID in .env to override)
-            Logger::warn('No chat ID for bot, using shared test chat', ['bot' => $bot->name, 'var' => $chatVar]);
+            Logger::warn('No chat ID for bot, skipping report', ['bot' => $bot->name, 'var' => $chatVar]);
+            $exitCode = 1;
+            continue;
         }
         $command = 'nextweek';
         $arg     = '';

@@ -88,6 +88,7 @@ try {
         // ── Step 1: Get per-day cheapest fares (price calendar) ────────────
         $fares = $ryanair->getCheapestPerDay($origin, $destination, $dateFrom, $dateTo);
 
+        $rows = [];
         if (empty($fares)) {
             printf("Ryanair: no flights found for %s → %s\n", $origin, $destination);
         } else {
@@ -102,8 +103,7 @@ try {
             // Enrich all days in parallel waves (see RyanairClient::getFlightsForDays).
             $enriched = $ryanair->getFlightsForDays($origin, $destination, $days);
 
-            $rows    = [];
-            $saved   = 0;
+            $saved = 0;
 
             foreach ($fares as $f) {
                 if ($f['unavailable'] || $f['price'] === null) {
@@ -113,23 +113,24 @@ try {
                 $day    = $f['day'];
                 $flight = $enriched[$day] ?? null;
 
-                if ($flight !== null) {
-                    $depTime   = $flight['dep_time'] ?? '12:00';
-                    $arrTime   = $flight['arr_time'] ?? '15:00';
-                    $flNumber  = $flight['flight_number'] ?: 'FR';
-                    $deepLink  = $flight['deep_link'] ?? $f['deep_link'];
-                } else {
-                    $depTime   = '12:00';
-                    $arrTime   = '15:00';
-                    $flNumber  = 'FR';
-                    $deepLink  = $f['deep_link'];
+                // No real flight details (enrichment failed / API omitted the
+                // schedule) → skip the row. Storing fake 12:00→15:00 times and
+                // an "FR" flight number created a phantom second row for the
+                // day, which a later successful run would duplicate.
+                if ($flight === null || empty($flight['dep_time']) || empty($flight['arr_time']) || ($flight['flight_number'] ?? '') === '') {
+                    printf("Ryanair: %s — price found but no flight details, skipping row\n", $day);
+                    continue;
                 }
+
+                $depTime    = $flight['dep_time'];
+                $arrTime    = $flight['arr_time'];
+                $flNumber   = $flight['flight_number'];
+                $deepLink   = $flight['deep_link'] ?? $f['deep_link'];
 
                 $departDt = sprintf('%s %s:00', $day, $depTime);
 
                 // The API returns real arrival times (e.g. 23:35 for a 20:50 departure).
-                // Fall back to a +3h estimate only when the enrichment call failed.
-                $arriveDate = ($flight !== null && !empty($flight['depart_date']) && $flight['depart_date'] !== $day)
+                $arriveDate = ($flight['depart_date'] !== $day)
                     ? $flight['depart_date']
                     : $day;
                 $arriveDt   = date('Y-m-d H:i:s', strtotime(sprintf('%s %s:00', $arriveDate, $arrTime)));
@@ -160,6 +161,15 @@ try {
 
             printf("Ryanair: saved %d flights (upsert + history)\n", $saved);
             Logger::info('Ryanair fetch complete', ['origin' => $origin, 'destination' => $destination, 'flights' => $saved]);
+        }
+
+        // Drop rows this run did not see — sold-out/vanished flights and stale
+        // flight numbers. Scoped to this route + ryanair source. An empty run
+        // (no fares, or all rows skipped for missing details) prunes the whole
+        // window; seasonal routes legitimately go empty.
+        $stale = $repo->deleteUnseen($origin, $destination, 'ryanair', array_column($rows, 'code'), $dateFrom, $dateTo);
+        if ($stale > 0) {
+            printf("Ryanair: removed %d stale row(s) for %s → %s\n", $stale, $origin, $destination);
         }
     }
 

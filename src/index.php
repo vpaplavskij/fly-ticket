@@ -51,7 +51,7 @@ function bootstrap(): \PDO
 
     // Count distinct flight days across BOTH directions so the status line
     // reflects everything on file, not just one direction. A single
-    // COUNT(DISTINCT DATE(depart)) per route — not a full getCheapestPerDay()
+    // COUNT(DISTINCT depart::date) per route — not a full getCheapestPerDay()
     // pull of every row — keeps `status` cheap to run.
     $dayCount = 0;
     foreach (Route::both() as $route) {

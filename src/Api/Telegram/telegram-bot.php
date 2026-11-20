@@ -159,6 +159,16 @@ function runBotLoop(string $botName): void
                     setViewMessageIds($chatId, $newIds);
 
                 } catch (\Exception $e) {
+                    // PostgreSQL dropped the connection: every query then
+                    // fails with SQLSTATE 08000/57014. Reconnect so the bot
+                    // doesn't sit in a loop erroring forever while alive.
+                    if (isDbGoneError($e)) {
+                        Logger::warn('DB connection lost — reconnecting', ['bot' => $bot->name, 'exception' => $e->getMessage()]);
+                        \Database::resetConnection();
+                        $pdo   = \Database::getConnection();
+                        $repo  = new FlightRepository($pdo);
+                        $users = new UserRepository($pdo);
+                    }
                     Logger::error('Error handling command', [
                         'bot'       => $bot->name,
                         'command'   => $command,
@@ -176,12 +186,41 @@ function runBotLoop(string $botName): void
             }
 
         } catch (\Throwable $e) {
+            // Same gone-away reconnect as the command handler above: getLang()
+            // and other DB reads run outside the inner try.
+            if (isDbGoneError($e)) {
+                Logger::warn('DB connection lost — reconnecting', ['bot' => $bot->name, 'exception' => $e->getMessage()]);
+                \Database::resetConnection();
+                $pdo   = \Database::getConnection();
+                $repo  = new FlightRepository($pdo);
+                $users = new UserRepository($pdo);
+            }
             // Network errors during long polling are normal — retry after a pause
             Logger::warn('Polling error (retrying in 5s)', ['bot' => $bot->name, 'exception' => $e->getMessage()]);
             printf("[%s] Polling error: %s (retrying in 5s)\n", $bot->name, $e->getMessage());
             sleep(5);
         }
     }
+}
+
+/**
+ * PostgreSQL connection-loss detection: 08000 = connection gone (server
+ * restart / backend killed), 57014 = query cancelled because the connection
+ * died. PDO reports these as the PDOException code (SQLSTATE). Walk the
+ * exception chain so wrapped RuntimeExceptions from Database::getConnection
+ * are caught too.
+ */
+function isDbGoneError(\Throwable $e): bool
+{
+    for ($t = $e; $t !== null; $t = $t->getPrevious()) {
+        if ($t instanceof \PDOException) {
+            $sqlstate = (string) $t->getCode();
+            if ($sqlstate === '08000' || $sqlstate === '57014') {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 // ── View-message tracking ─────────────────────────────────────────────

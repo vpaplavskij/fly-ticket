@@ -89,6 +89,12 @@ try {
 
         if (empty($flights)) {
             printf("AirBaltic: no flights found for %s → %s\n", $origin, $destination);
+            // Legitimate empty result (seasonal route out of season) — the
+            // route really has no flights now, so its stored rows go away.
+            $stale = $repo->deleteUnseen($origin, $destination, 'airbaltic-cyprus', [], $dateFrom, $dateTo);
+            if ($stale > 0) {
+                printf("AirBaltic: removed %d stale row(s) for %s → %s\n", $stale, $origin, $destination);
+            }
             continue;
         }
 
@@ -115,6 +121,7 @@ try {
                 'flight_number' => $f['flight_number'],
                 'source'        => 'airbaltic-cyprus',
                 'buy_link'      => $f['deep_link'] ?? null,
+                'estimated'     => $f['estimated'] ?? false,
             ];
 
             printf(
@@ -157,6 +164,13 @@ try {
 
         $saved = $repo->upsertFlights($rows);
         $repo->recordHistoryBatch($historyRows);
+
+        // Drop rows this run did not see (sold-out/vanished flights). Scoped to
+        // this route + 'airbaltic-cyprus', so other sources on the pair survive.
+        $stale = $repo->deleteUnseen($origin, $destination, 'airbaltic-cyprus', array_column($rows, 'code'), $dateFrom, $dateTo);
+        if ($stale > 0) {
+            printf("AirBaltic: removed %d stale row(s) for %s → %s\n", $stale, $origin, $destination);
+        }
 
         printf("AirBaltic: saved %d flights (%d dates) for %s\n", $saved, count($cheapestByDate), $route['label']);
         $totalSaved += $saved;

@@ -34,6 +34,16 @@ class Database
         return $deleted;
     }
 
+    /**
+     * Drop the cached PDO connection. The long-running bot loop calls this when
+     * PostgreSQL drops the connection (server restart, backend killed, SQLSTATE
+     * 08000/57014); the next getConnection() opens a fresh one.
+     */
+    public static function resetConnection(): void
+    {
+        self::$instance = null;
+    }
+
     public static function getConnection(): \PDO
     {
         if (self::$instance !== null) {
@@ -45,11 +55,10 @@ class Database
         $config = \Config\Database::get_all();
 
         $dsn = sprintf(
-            'mysql:host=%s;port=%d;dbname=%s;charset=%s',
+            'pgsql:host=%s;port=%d;dbname=%s',
             $config['host'],
             $config['port'],
             $config['dbname'],
-            $config['charset'],
         );
 
         try {
@@ -61,7 +70,7 @@ class Database
             );
         } catch (\PDOException $e) {
             throw new \RuntimeException(sprintf(
-                'MySQL connection failed (%s): %s',
+                'PostgreSQL connection failed (%s): %s',
                 $e->getCode(),
                 $e->getMessage(),
             ), 0, $e);

@@ -27,8 +27,7 @@ final class Database
             'dbname' => self::DB_NAME(),
             'username' => self::DB_USERNAME(),
             'password' => self::DB_PASSWORD(),
-            'port' => (int) (getenv('DB_PORT') ?: 3306),
-            'charset' => getenv('DB_CHARSET') ?: 'utf8mb4',
+            'port' => (int) (getenv('DB_PORT') ?: 5432),
             'options' => [
                 \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
                 \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC,
