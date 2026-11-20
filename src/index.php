@@ -7,6 +7,7 @@
  * connection, prints a short status line, then dispatches a job:
  *
  *   php src/index.php                 Show help
+ *   php src/index.php migrate         Create/upgrade the DB schema (once after install)
  *   php src/index.php status          Check config + DB connectivity and exit
  *   php src/index.php fetch           Fetch latest prices (Ryanair + AirBaltic)
  *   php src/index.php report <bot> <chat> [cmd]   Send a report via one bot
@@ -24,16 +25,6 @@ use FlyTicket\Database\FlightRepository;
 use FlyTicket\Database\Schema;
 use FlyTicket\Support\Logger;
 
-/** Mask the middle of a secret for display. */
-function mask(string $value): string
-{
-    $len = strlen($value);
-    if ($len <= 8) {
-        return str_repeat('*', $len);
-    }
-    return substr($value, 0, 4) . str_repeat('*', $len - 8) . substr($value, -4);
-}
-
 /** Validate config + DB and print a short status line. Returns the PDO. */
 function bootstrap(): \PDO
 {
@@ -42,7 +33,6 @@ function bootstrap(): \PDO
 
     \Config\Database::validateDatabase();
     $pdo = Database::getConnection();
-    Schema::ensureTables($pdo);
 
     $config   = \Config\Database::get_all();
     $repo     = new FlightRepository($pdo);
@@ -79,7 +69,7 @@ function runJob(string $job, array $argv): int
     }
 
     $args = array_slice($argv, 2);
-    $cmd  = escapeshellarg('php') . ' ' . escapeshellarg(__DIR__ . '/jobs.php') . ' ' . escapeshellarg($job);
+    $cmd  = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/jobs.php') . ' ' . escapeshellarg($job);
     foreach ($args as $a) {
         $cmd .= ' ' . escapeshellarg($a);
     }
@@ -97,6 +87,7 @@ function help(): void
 Usage: php src/index.php <command> [args]
 
 Commands:
+  migrate               Create/upgrade the DB schema (run once after install)
   status                  Check config + DB connectivity and exit
   fetch                   Fetch latest prices from Ryanair + AirBaltic
   report <bot> <chat_id> [cmd] [arg]
@@ -115,6 +106,17 @@ $job = $argv[1] ?? 'help';
 
 try {
     switch ($job) {
+        case 'migrate':
+            EnvLoader::loadEnv();
+            Logger::registerHandlers();
+            \Config\Database::validateDatabase();
+            $pdo = Database::getConnection();
+            Schema::ensureTables($pdo);
+            // Legacy MySQL-era leftovers that nothing ever read; not in the DDL anymore.
+            $pdo->exec('DROP TABLE IF EXISTS searches');
+            $pdo->exec('ALTER TABLE flights DROP COLUMN IF EXISTS search_id');
+            echo "Schema ready\n";
+            exit(0);
         case 'status':
         case 'fetch':
         case 'report':

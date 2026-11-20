@@ -1,5 +1,3 @@
-
-
 <?php
 
 class Database
@@ -11,25 +9,17 @@ class Database
     private function __clone() {}
 
     /**
-     * Drop price_history rows older than $days days, at most once per day.
-     * All four fetch scripts call this every 15 minutes (96×/day); the marker
-     * file makes the DELETE run only once a day instead of 384 times.
+     * Drop price_history rows older than $days days. Called ONCE per fetch
+     * cycle from jobs.php (after the fetch children finish), so it never races
+     * with the writers the way the old per-script call did.
      */
     public static function prunePriceHistory(int $days = 90): int
     {
-        $marker = sys_get_temp_dir() . '/fly-ticket-history-cleanup';
-
-        if (is_file($marker) && filemtime($marker) > time() - 86400) {
-            return 0; // already cleaned up today
-        }
-
-        $pdo    = self::getConnection();
-        $cutoff = date('Y-m-d', strtotime("-{$days} days"));
+        $pdo     = self::getConnection();
+        $cutoff  = date('Y-m-d', strtotime("-{$days} days"));
         $deleted = (int) $pdo->exec(
             'DELETE FROM price_history WHERE fetched_at < ' . $pdo->quote($cutoff)
         );
-
-        @file_put_contents($marker, date('c')); // best-effort; a failed write just means the DELETE re-runs next time
 
         return $deleted;
     }

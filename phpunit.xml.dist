@@ -20,4 +20,11 @@
             <directory suffix=".php">src</directory>
         </include>
     </source>
+
+    <php>
+        <!-- Tests run against a separate database (created once:
+             CREATE DATABASE fly_ticket_test). Real env wins over .env
+             (see Config\EnvLoader), so this overrides DB_NAME. -->
+        <env name="DB_NAME" value="fly_ticket_test"/>
+    </php>
 </phpunit>

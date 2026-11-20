@@ -12,6 +12,10 @@ storage/logs/*.log
 vendor/bin/.phpunit.result.cache
 .phpunit.cache/
 
+# ── Dependencies ──────────────────────────────────────────────────────
+# Installed by `composer install` (deploy: composer install --no-dev).
+vendor/
+
 # ── Tooling / IDE noise ───────────────────────────────────────────────
 .continue/
 .idea/

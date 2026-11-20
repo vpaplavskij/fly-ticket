@@ -44,43 +44,7 @@ class AirbalticClient
         $offers      = $this->getJson('/2e/offers/' . urlencode($origin) . '/' . urlencode($destination));
         $monthPrices = $this->mapMonthPrices($offers);
 
-        $flights = [];
-        foreach ($timetable as $entry) {
-            $flightNumber = $entry['flightNumber'] ?? '';
-            $depTime      = $this->normalizeTime($entry['depTime'] ?? '00:00');
-            $arrTime      = $this->normalizeTime($entry['arrTime'] ?? '00:00');
-
-            foreach (($entry['dates'] ?? []) as $date) {
-                // Prefer the exact live per-date fare; fall back to month's lowest.
-                // The monthly fallback is an ESTIMATE — flag it so the bot shows
-                // "≈" instead of presenting it as a quoted price.
-                // If neither has a price the fare is genuinely unknown — skip the
-                // date rather than storing a 0.0 (which would surface as a €0.00
-                // "cheapest" ticket in the bot, since getTopPerDay sorts by price).
-                $price     = $datePrices[$date] ?? null;
-                $estimated = false;
-                if ($price === null) {
-                    $price     = $monthPrices[substr($date, 0, 7)] ?? null;
-                    $estimated = true;
-                }
-                if ($price === null || $price <= 0) {
-                    continue;
-                }
-
-                $flights[] = [
-                    'code'          => $flightNumber . '-' . $date,
-                    'flight_number' => $flightNumber,
-                    'depart_date'   => $date,
-                    'dep_time'      => $depTime,
-                    'arr_time'      => $arrTime,
-                    'price'         => $price,
-                    'estimated'     => $estimated,
-                    'deep_link'     => $this->buildDeepLink($origin, $destination, $date),
-                ];
-            }
-        }
-
-        return $flights;
+        return $this->mergeFlights($timetable, $datePrices, $monthPrices, $origin, $destination);
     }
 
     /**
@@ -163,8 +127,8 @@ class AirbalticClient
             curl_multi_add_handle($multi, $ch);
         }
 
-        // NOTE: the CURLM_* constants are not all reliably defined on this PHP build,
-        // so compare against the numeric values (CURLM_OK=0, CURLM_ERROR=-1).
+        // PHP defines no CURLM_* constants, so compare against the numeric
+        // return values (curl_multi_exec: 0 = done/OK).
         do {
             $status = curl_multi_exec($multi, $active);
             if ($status === -1) {
@@ -217,9 +181,25 @@ class AirbalticClient
         curl_multi_remove_handle($multi, $chOffers);
         curl_multi_close($multi);
 
-        // Merge timetable + fares (same logic as the sequential path).
+        // Merge timetable + fares — same shared logic as the sequential path.
         $monthPrices = $this->mapMonthPrices($offers);
-        $flights     = [];
+        return $this->mergeFlights($timetable, $datePrices, $monthPrices, $origin, $destination);
+    }
+
+    /**
+     * Merge timetable entries with live per-date fares and the monthly
+     * fallback into the flight rows both fetch paths return.
+     *
+     * Prefer the exact live per-date fare; fall back to the month's lowest.
+     * The monthly fallback is an ESTIMATE — flag it so the bot shows "≈"
+     * instead of presenting it as a quoted price. If neither has a price the
+     * fare is genuinely unknown — skip the date rather than storing a 0.0
+     * (which would surface as a €0.00 "cheapest" ticket in the bot, since
+     * getTopPerDay sorts by price).
+     */
+    private function mergeFlights(array $timetable, array $datePrices, array $monthPrices, string $origin, string $destination): array
+    {
+        $flights = [];
 
         foreach ($timetable as $entry) {
             $flightNumber = $entry['flightNumber'] ?? '';
@@ -227,9 +207,6 @@ class AirbalticClient
             $arrTime      = $this->normalizeTime($entry['arrTime'] ?? '00:00');
 
             foreach (($entry['dates'] ?? []) as $date) {
-                // Same unknown-price guard as the sequential path: drop dates
-                // with no live or monthly fare instead of storing 0.0; flag the
-                // monthly fallback as estimated.
                 $price     = $datePrices[$date] ?? null;
                 $estimated = false;
                 if ($price === null) {

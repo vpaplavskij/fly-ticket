@@ -167,6 +167,32 @@ class FlightRepositoryTest extends TestCase
         $this->assertEquals((float) $rowsStr[0]['price'], (float) $rowsArr[0]['price']);
     }
 
+    /**
+     * Regression: the old code sliced the result to $limit BEFORE sorting by
+     * price, so in arbitrary DB order the cheapest company could be dropped.
+     * Seeds 4 companies on one day with the cheapest inserted LAST; with
+     * limit=3 it must still survive.
+     */
+    public function test_getTopPerDay_keeps_cheapest_when_day_exceeds_limit(): void
+    {
+        $repo = $this->repo();
+        $day  = date('Y-m-d', strtotime('+1 day'));
+
+        $this->seedFlight(['code' => 'L1-' . $day, 'depart' => $day . ' 06:00:00', 'arrive' => $day . ' 08:00:00', 'price' => '80.00', 'company' => 'Ryanair',   'flight_number' => 'FR1', 'source' => 'ryanair']);
+        $this->seedFlight(['code' => 'L2-' . $day, 'depart' => $day . ' 09:00:00', 'arrive' => $day . ' 11:00:00', 'price' => '70.00', 'company' => 'AirBaltic', 'flight_number' => 'BT1', 'source' => null]);
+        $this->seedFlight(['code' => 'L3-' . $day, 'depart' => $day . ' 12:00:00', 'arrive' => $day . ' 14:00:00', 'price' => '60.00', 'company' => 'Norwegian', 'flight_number' => 'DY1', 'source' => 'other']);
+        $this->seedFlight(['code' => 'L4-' . $day, 'depart' => $day . ' 15:00:00', 'arrive' => $day . ' 17:00:00', 'price' => '25.00', 'company' => 'easyJet',   'flight_number' => 'U21', 'source' => 'other']);
+
+        $rows = $repo->getTopPerDay(self::TEST_ORIGIN, self::TEST_DEST, $day, $day, 3);
+        $this->assertCount(3, $rows);
+
+        // Cheapest-first: the €25 easyJet row (seeded last) must be first, and
+        // the €80 Ryanair row is the one dropped.
+        $prices = array_map(fn($r) => (float) $r['price'], $rows);
+        $this->assertSame([25.0, 60.0, 70.0], $prices);
+        $this->assertSame('easyJet', $rows[0]['company']);
+    }
+
     public function test_deleteUnseen_removes_stale_rows_and_keeps_seen_and_other_sources(): void
     {
         $repo = $this->repo();

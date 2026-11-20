@@ -26,8 +26,8 @@ class FlightRepository
         }
 
         $pdo = $this->pdo;
-        $sql = 'INSERT INTO flights (code, search_id, origin, destination, depart, arrive, price, company, flight_number, source, buy_link, estimated)
-                VALUES (:code, NULL, :origin, :destination, :depart, :arrive, :price, :company, :flight_number, :source, :buy_link, :estimated)
+        $sql = 'INSERT INTO flights (code, origin, destination, depart, arrive, price, company, flight_number, source, buy_link, estimated)
+                VALUES (:code, :origin, :destination, :depart, :arrive, :price, :company, :flight_number, :source, :buy_link, :estimated)
                 ON CONFLICT (code) DO UPDATE SET
                     depart        = EXCLUDED.depart,
                     arrive        = EXCLUDED.arrive,
@@ -272,35 +272,35 @@ class FlightRepository
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
 
-        // Keep the top-$limit cheapest company per day (a day with fewer
-        // distinct companies simply yields fewer rows).
+        // Collect every (day, company) row first, then sort each day by price and
+        // keep the top-$limit cheapest companies. Slicing BEFORE sorting (the old
+        // "keep the first $limit rows" shape) dropped the cheapest fares in
+        // arbitrary DB order and let alternative-airport rows eat the slots.
         $byDate = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $date = $row['depart_date'];
-            if (!isset($byDate[$date]) || count($byDate[$date]) < $limit) {
-                $byDate[$date][] = [
-                    'origin'        => $row['origin'],
-                    'date'          => $date,
-                    'price'         => (float) $row['price'],
-                    'source'        => $row['source'],
-                    'company'       => $row['company'] !== '' ? $row['company'] : null,
-                    'flight_number' => $row['flight_number'],
-                    'buy_link'      => $row['buy_link'],
-                    'depart'        => $row['depart'],
-                    'arrive'        => $row['arrive'],
-                    'estimated'     => (bool) ($row['estimated'] ?? false),
-                ];
-            }
+            $byDate[$date][] = [
+                'origin'        => $row['origin'],
+                'date'          => $date,
+                'price'         => (float) $row['price'],
+                'source'        => $row['source'],
+                'company'       => $row['company'] !== '' ? $row['company'] : null,
+                'flight_number' => $row['flight_number'],
+                'buy_link'      => $row['buy_link'],
+                'depart'        => $row['depart'],
+                'arrive'        => $row['arrive'],
+                'estimated'     => (bool) ($row['estimated'] ?? false),
+            ];
         }
 
-        // The subquery is not ordered, so sort each day's rows by price and the
-        // days themselves chronologically. Return a FLAT list of row arrays (each
-        // carrying its `date`), cheapest-first within a day, days in ascending
-        // order — the shape every consumer (buildToday, buildNext,
-        // buildNext) expects when it accesses $row['price'], $row['depart'], etc.
+        // Sort each day's rows by price, slice to the limit, and order the days
+        // chronologically. Return a FLAT list of row arrays (each carrying its
+        // `date`), cheapest-first within a day, days in ascending order — the
+        // shape every consumer (buildToday, buildNext, buildNext) expects when it
+        // accesses $row['price'], $row['depart'], etc.
         foreach ($byDate as $date => $rows) {
             usort($rows, fn($a, $b) => $a['price'] <=> $b['price']);
-            $byDate[$date] = $rows;
+            $byDate[$date] = array_slice($rows, 0, $limit);
         }
         ksort($byDate);
 

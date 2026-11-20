@@ -6,7 +6,6 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 use Config\BotRegistry;
 use FlyTicket\Database\FlightRepository;
-use FlyTicket\Database\Schema;
 use FlyTicket\Database\UserRepository;
 use FlyTicket\Support\Logger;
 
@@ -33,7 +32,6 @@ function runBotLoop(string $botName): void
 
     $telegram = new TelegramClient($bot->token);
     $pdo      = \Database::getConnection();
-    Schema::ensureTables($pdo);
     $repo  = new FlightRepository($pdo);
     $users = new UserRepository($pdo);
 
@@ -86,6 +84,12 @@ function runBotLoop(string $botName): void
                 $lang = $users->getLang($chatId) ?? 'en';
                 Translator::set($lang);
 
+                // Prime the render state from THIS chat's stored leg/direction.
+                // Handlers read process-global state for titles and pairs, so a
+                // typed /today must not inherit whatever the last chat pressed.
+                setActiveDirection(getActiveDirection($chatId));
+                setActiveRouteIndex(getActiveRouteIndexForChat($chatId));
+
                 // ── Inline button press (callback_query) ────────────────────
                 if (isset($update['callback_query'])) {
                     $cb    = $update['callback_query'];
@@ -94,6 +98,17 @@ function runBotLoop(string $botName): void
 
                     Logger::info('Button pressed', ['bot' => $bot->name, 'data' => $data, 'chat_id' => $chatId]);
                     printf("[%s] Button: %s (chat %s)\n", $bot->name, $data, $chatId);
+
+                    // Stop the inline-button spinner — Telegram keeps the button
+                    // spinning until the callback is answered. Best-effort: a
+                    // failed answer must not abort the handler below.
+                    try {
+                        if (isset($cb['id'])) {
+                            $telegram->answerCallbackQuery($cb['id']);
+                        }
+                    } catch (\Throwable $e) {
+                        Logger::warn('Failed to answer callback', ['bot' => $bot->name, 'exception' => $e->getMessage()]);
+                    }
 
                     safeHandleCallback($telegram, $repo, $users, $origin, $destination, $chatId, $msgId, $data);
                     continue;
@@ -107,7 +122,9 @@ function runBotLoop(string $botName): void
                 $chatId  = $update['message']['chat']['id'];
                 $text    = trim($update['message']['text']);
                 $parts   = preg_split('/\s+/', $text);
-                $command = strtolower(str_replace('/', '', $parts[0]));
+                // Group chats send "/today@BotName"; strip the @ suffix so the
+                // command matches in private chats and groups alike.
+                $command = strtolower(explode('@', str_replace('/', '', $parts[0]))[0]);
 
                 Logger::info('Command received', ['bot' => $bot->name, 'command' => $command, 'chat_id' => $chatId]);
                 printf("[%s] Received: %s from chat %s\n", $bot->name, $text, $chatId);
@@ -177,8 +194,10 @@ function runBotLoop(string $botName): void
                         'at'        => $e->getFile() . ':' . $e->getLine(),
                     ]);
                     printf("[%s] Error handling command: %s\n", $bot->name, $e->getMessage());
+                    // Never show raw exception text to the user: DB errors carry
+                    // host, port and role names. The detail stays in the log.
                     try {
-                        $telegram->sendMessage($chatId, Translator::t('error_prefix') . htmlspecialchars($e->getMessage()));
+                        $telegram->sendMessage($chatId, Translator::t('something_went_wrong'));
                     } catch (\Exception $sendErr) {
                         Logger::error('Failed to send error message', ['exception' => $sendErr->getMessage()]);
                     }
@@ -247,6 +266,27 @@ function setActiveDirectionForChat(int|string $chatId, string $direction): void
 {
     global $flyticket_active_directions;
     $flyticket_active_directions[$chatId] = ($direction === 'r') ? 'r' : 'o';
+}
+
+/**
+ * Per-chat active route index (0-based into botRoutes()). Views remember which
+ * route pair the user opened, so two chats on different legs never render each
+ * other's data. The global in telegram-bot-handlers.php is only the render-time
+ * scratch state; this map is what a text command resolves against.
+ */
+$flyticket_active_routes = [];
+
+function getActiveRouteIndexForChat(int|string $chatId): int
+{
+    global $flyticket_active_routes;
+    return $flyticket_active_routes[$chatId] ?? 0;
+}
+
+/** Clamp to this bot's route list and store it for the chat. */
+function setActiveRouteIndexForChat(int|string $chatId, int $index): void
+{
+    global $flyticket_active_routes;
+    $flyticket_active_routes[$chatId] = max(0, min($index, count(botRoutes()) - 1));
 }
 
 function getViewMessageIds(int|string $chatId): array
@@ -359,7 +399,8 @@ function handleCallback($telegram, FlightRepository $repo, UserRepository $users
             $routeIndex = 0;
             $direction  = (end($segs) === 'r') ? 'r' : 'o';
         }
-        setActiveRouteIndex($routeIndex);
+        setActiveRouteIndexForChat($chatId, $routeIndex);
+        setActiveRouteIndex(getActiveRouteIndexForChat($chatId));
         setActiveDirectionForChat($chatId, $direction);
         setActiveDirection($direction);
 
@@ -379,7 +420,8 @@ function handleCallback($telegram, FlightRepository $repo, UserRepository $users
     if (str_starts_with($data, 'buy:')) {
         $payload = substr($data, 4);
         // "2026-11-05" or "2026-11-05:11:15" — split into date + optional time.
-        $parts    = explode(':', $payload);
+        // Limit 2 so the time keeps its own colon ("11:15", not "11").
+        $parts    = explode(':', $payload, 2);
         $datePart = $parts[0];
         $time     = isset($parts[1]) ? $parts[1] : '';
 
@@ -410,17 +452,14 @@ function handleCallback($telegram, FlightRepository $repo, UserRepository $users
         $segments = explode(':', $rest);
         $view     = $segments[0];
 
-        // The route index is deliberately NOT trusted from the button. Stale
-        // buttons (built by an older process, or a second running instance of
-        // this bot) can carry a baked-in index that points at the WRONG leg —
-        // e.g. opening RIX⇄LCA but tapping a "v:week:0:o" button that renders
-        // RIX⇄MLA. The direction menu sets process state when its d:<i>:<dir>
-        // button is pressed, and the view tap always follows it, so re-derive
-        // the index from that state (activeRouteIndex()). A v: button is only
-        // ever reached via a preceding d: press or a footer of an already-open
-        // leg, both of which leave the correct index in process state.
+        // The route index is taken from the button and bounds-checked against
+        // this bot's route list: an out-of-range index clamps to a real leg
+        // instead of rendering the wrong one. Legacy "v:<view>:<dir>" and
+        // index-less taps fall back to the leg this chat last opened.
+        $routeIndex = getActiveRouteIndexForChat($chatId);
         if (count($segments) >= 3 && ctype_digit($segments[1])) {
-            // New format: v:<view>:<i>:<dir> — direction from the button.
+            // New format: v:<view>:<i>:<dir> — index and direction from the button.
+            $routeIndex = (int) $segments[1];
             $dir = $segments[2] === 'r' ? 'r' : 'o';
         } elseif (isset($segments[1])) {
             // Legacy format: v:<view>:<dir> — direction from the button.
@@ -437,11 +476,10 @@ function handleCallback($telegram, FlightRepository $repo, UserRepository $users
         }
         setActiveDirection($dir);
 
-        // The leg we are rendering: the index left in process state by the
-        // preceding d:<i>:<dir> press (or a footer of an already-open leg).
-        // Each callback press is a fresh handleCallback() call, so $routeIndex
-        // is NOT inherited from any earlier branch — read it from state.
-        $routeIndex = activeRouteIndex();
+        // The leg we are rendering, remembered per chat and mirrored into the
+        // render-time global the view builders read for their titles.
+        setActiveRouteIndexForChat($chatId, $routeIndex);
+        setActiveRouteIndex(getActiveRouteIndexForChat($chatId));
 
         [$lo, $ld] = directionPair($dir);
         Logger::info('View rendering', [

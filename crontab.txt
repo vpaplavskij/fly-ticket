@@ -2,11 +2,11 @@
 # All jobs point at src/jobs.php; logs go to storage/logs/ (see app-YYYY-MM-DD.log).
 
 # Fetch prices 4×/day: 06:00, 11:00, 16:00, 20:00
-0 6,11,16,20 * * * cd /home/kinder/Documents/fly-ticket && php src/jobs.php fetch >> storage/logs/cron.log 2>&1
+0 6,11,16,20 * * * cd /home/kinder/Documents/fly-ticket && php src/jobs.php fetch >> storage/logs/cron-$(date +\%F).log 2>&1
 
 # Daily price report (fan-out to every configured bot) at 08:00.
 # Each bot reports to its own chat — see runReportJob() in src/jobs.php.
-0 8 * * * cd /home/kinder/Documents/fly-ticket && php src/jobs.php report >> storage/logs/cron.log 2>&1
+0 8 * * * cd /home/kinder/Documents/fly-ticket && php src/jobs.php report >> storage/logs/cron-$(date +\%F).log 2>&1
 
 # Keep the bots alive: restart if not running (every minute).
 # `php src/jobs.php bot` spawns one poller per configured bot and waits on all,
@@ -15,7 +15,9 @@
 # (regex for a literal dot) so it matches the real process but does NOT self-match
 # this crontab line — a bare "telegram-bot.php" would make pgrep match cron's own
 # shell and the bot would never start.
-* * * * * pgrep -f "telegram-bot[.]php" > /dev/null || (cd /home/kinder/Documents/fly-ticket && nohup php src/jobs.php bot >> storage/logs/bot.log 2>&1 &)
+* * * * * pgrep -f "telegram-bot[.]php" > /dev/null || (cd /home/kinder/Documents/fly-ticket && nohup php src/jobs.php bot >> storage/logs/bot-$(date +\%F).log 2>&1 &)
 
-# Log retention: remove log files older than 30 days
-0 3 * * * find /home/kinder/Documents/fly-ticket/storage/logs -name "app-*.log" -mtime +30 -delete >> /dev/null 2>&1
+# Log retention: remove log files older than 30 days. Date-stamped files only
+# get written on their own day, so mtime +30 is when they really go stale —
+# this covers app-*, cron-* and bot-* logs.
+0 3 * * * find /home/kinder/Documents/fly-ticket/storage/logs -name "*.log" -mtime +30 -delete >> /dev/null 2>&1

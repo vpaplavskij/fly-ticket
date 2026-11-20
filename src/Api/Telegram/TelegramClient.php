@@ -111,7 +111,10 @@ class TelegramClient
     public function getUpdates(int $timeout = 30, ?int $offset = null): array
     {
         $params = [
-            'timeout' => $timeout,
+            'timeout'         => $timeout,
+            // Only the update types the loop actually handles; without this
+            // Telegram also delivers edited/pinned/etc. updates we ignore.
+            'allowed_updates' => ['message', 'callback_query'],
         ];
 
         if ($offset !== null) {
@@ -119,6 +122,22 @@ class TelegramClient
         }
 
         return $this->request('getUpdates', $params);
+    }
+
+    /**
+     * Stop the "clock" spinner on a pressed inline button. Telegram keeps the
+     * button spinning until the callback is answered, so every callback_query
+     * must be answered (success or toast) within ~2 seconds.
+     */
+    public function answerCallbackQuery(string $callbackQueryId, ?string $toast = null): array
+    {
+        $params = ['callback_query_id' => $callbackQueryId];
+        if ($toast !== null) {
+            $params['show_alert'] = true;
+            $params['text']       = $toast;
+        }
+
+        return $this->request('answerCallbackQuery', $params);
     }
 
     /**

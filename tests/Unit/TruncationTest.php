@@ -2,45 +2,22 @@
 
 namespace FlyTicket\Tests\Unit;
 
+use FlyTicket\Api\Telegram;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Tests for the Telegram 4096-char truncation logic.
+ * Tests for the Telegram 4096-char truncation logic (telegram-bot-handlers.php:
+ * truncateReply), which every send path runs through.
  *
- * The truncation lives inline in telegram-bot.php (the long-polling loop), so it
- * cannot be called directly without running the bot. This test replicates that
- * exact algorithm and asserts the invariant that fixed the "Unclosed start tag"
- * 400 error: a truncated reply must never contain an unclosed <a>/<b>/<i> tag.
- *
- * Keep this in sync with the block in src/Api/Telegram/telegram-bot.php.
+ * The real function is called directly — it is Composer "files"-autoloaded, so
+ * this suite cannot drift out of sync with the implementation the way a mirrored
+ * copy could. The invariant that fixed the "Unclosed start tag" 400 error: a
+ * truncated reply must never contain an unclosed <a>/<b>/<i> tag, and it must
+ * stay valid UTF-8 (json_encode() returns false on a broken string, which would
+ * drop the message and its keyboard).
  */
 class TruncationTest extends TestCase
 {
-    /** Mirror of the truncation block in telegram-bot.php. */
-    private static function truncate(string $reply): string
-    {
-        if (strlen($reply) > 4096) {
-            $truncated = substr($reply, 0, 4093);
-
-            // Drop a trailing partial/dangling open tag with no closing ">".
-            if (preg_match('/<([a-z][a-z0-9]*)(?:\s[^>]*)?$/i', $truncated)) {
-                $truncated = preg_replace('/<([a-z][a-z0-9]*)(?:\s[^>]*)?$/i', '', $truncated);
-            }
-
-            $openA = substr_count($truncated, '<a ') - substr_count($truncated, '</a>');
-            $openB = substr_count($truncated, '<b>')  - substr_count($truncated, '</b>');
-            $openI = substr_count($truncated, '<i>')  - substr_count($truncated, '</i>');
-
-            $tail = '';
-            for ($i = 0; $i < max(0, $openA); $i++) { $tail .= '</a>'; }
-            for ($i = 0; $i < max(0, $openB); $i++) { $tail .= '</b>'; }
-            for ($i = 0; $i < max(0, $openI); $i++) { $tail .= '</i>'; }
-
-            $reply = rtrim($truncated) . '...' . $tail;
-        }
-        return $reply;
-    }
-
     private static function unclosedCount(string $html): array
     {
         return [
@@ -53,7 +30,7 @@ class TruncationTest extends TestCase
     public function test_short_reply_is_unchanged(): void
     {
         $short = "✈️ <b>Today's flights</b>\n10:50 → 13:25 · AirBaltic · <b>€229.99</b>";
-        $this->assertSame($short, self::truncate($short));
+        $this->assertSame($short, Telegram\truncateReply($short));
     }
 
     public function test_long_reply_is_within_limit_and_balanced(): void
@@ -67,7 +44,7 @@ class TruncationTest extends TestCase
         $reply = implode("\n", $lines);
         $this->assertGreaterThan(4096, strlen($reply), 'precondition: input must exceed the limit');
 
-        $out = self::truncate($reply);
+        $out = Telegram\truncateReply($reply);
 
         // Must fit Telegram's 4096-char message limit.
         $this->assertLessThanOrEqual(4096, strlen($out));
@@ -89,9 +66,24 @@ class TruncationTest extends TestCase
         $suffix = str_repeat('B', 500); // push total well past 4096
         $reply = $prefix . $suffix;
 
-        $out = self::truncate($reply);
+        $out = Telegram\truncateReply($reply);
         $unclosed = self::unclosedCount($out);
         $this->assertSame([ 'a' => 0, 'b' => 0, 'i' => 0 ], array_map('intval', $unclosed),
             'dangling <a href=...> fragment was not stripped: ' . json_encode($unclosed));
+    }
+
+    public function test_cut_never_splits_a_multibyte_character(): void
+    {
+        // Regression: substr() cut at a byte offset, landing inside "€" (3 bytes).
+        // The broken UTF-8 made json_encode() return false and Telegram rejected
+        // the whole message, losing the last chunk and its navigation keyboard.
+        $reply = str_repeat('€ ', 3000); // 9000 bytes, well past the limit
+        $this->assertGreaterThan(4096, strlen($reply), 'precondition: input must exceed the limit');
+
+        $out = Telegram\truncateReply($reply);
+
+        $this->assertTrue(mb_check_encoding($out, 'UTF-8'), 'truncated reply is not valid UTF-8');
+        $this->assertNotFalse(json_encode($out), 'truncated reply must survive json_encode');
+        $this->assertStringContainsString('...', $out);
     }
 }

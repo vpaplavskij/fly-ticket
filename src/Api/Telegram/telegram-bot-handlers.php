@@ -59,18 +59,19 @@ function otherDirection(string $direction): string
 // A bot can offer several route pairs (its primary route plus any
 // TELEGRAM_<NAME>_EXTRA_ROUTES). The direction buttons in the main menu carry
 // an index into botRoutes(); views and footers carry it in their callback data
-// (d:<i>:<dir>, v:<view>:<i>:<dir>) so every leg keeps its own pair. The active
-// index is per-process state, like the direction — one poller process serves
-// one bot, and views render in button-press order.
+// (d:<i>:<dir>, v:<view>:<i>:<dir>) so every leg keeps its own pair. The poller
+// keeps the index PER CHAT (telegram-bot.php: get/setActiveRouteIndexForChat);
+// the global below is only render-time scratch state the view builders read for
+// their titles, primed from the chat's stored index before each render.
 
 /** All route pairs this bot offers: [ [o,d], ... ] (primary first). */
 function botRoutes(): array
 {
-    // Resolve the running bot from the real CLI args ($argv). In live poll-loop
-    // mode and render mode, $argv[1] is the bot name. We also check
-    // $GLOBALS['argv'] as a fallback because unit tests seed that global (the
-    // namespaced $argv is not settable from outside the namespace in PHPUnit).
-    $name = $argv[1] ?? $GLOBALS['argv'][1] ?? null;
+    // Resolve the running bot from the real CLI args. In live poll-loop mode and
+    // render mode, argv[1] is the bot name. Inside a namespaced function $argv
+    // is a (non-existent) local, so only $GLOBALS['argv'] is readable here —
+    // unit tests seed that global to simulate a live `php telegram-bot.php <name>`.
+    $name = $GLOBALS['argv'][1] ?? null;
     if ($name !== null) {
         $bot = BotRegistry::get($name);
         if ($bot !== null) {
@@ -255,7 +256,7 @@ function bot_identity(): ?string
         return $GLOBALS['__flyticket_bot_username'];
     }
 
-    $name = $argv[1] ?? $GLOBALS['argv'][1] ?? null;
+    $name = $GLOBALS['argv'][1] ?? null;
     if ($name === null) {
         return null; // render mode / no bot context
     }
@@ -308,7 +309,7 @@ function bot_identity_line(): string
  */
 function activeRoute(): array
 {
-    $name = $argv[1] ?? $GLOBALS['argv'][1] ?? null;
+    $name = $GLOBALS['argv'][1] ?? null;
     if ($name !== null) {
         $bot = BotRegistry::get($name);
         if ($bot !== null) {
@@ -827,11 +828,14 @@ function handleBuy(FlightRepository $repo, string $dateArg, ?string $origin = nu
  */
 function truncateReply(string $reply): string
 {
-    if (strlen($reply) <= 4096) {
+    if (mb_strlen($reply) <= 4096) {
         return $reply;
     }
 
-    $truncated = substr($reply, 0, 4093);
+    // mb_strcut cuts on a BYTE boundary but never splits a multibyte character,
+    // unlike substr(): cutting through "€" produced invalid UTF-8, which made
+    // json_encode() return false and dropped the message and its keyboard.
+    $truncated = mb_strcut($reply, 0, 4093, 'UTF-8');
 
     // Drop a trailing partial/dangling open tag (e.g. "<a href="...") that
     // has no closing ">" — it would otherwise remain unclosed.

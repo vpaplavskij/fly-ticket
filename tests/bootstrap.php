@@ -11,10 +11,6 @@
  * harmless and lets the integration tests run in the same pass.
  */
 
-// bootstrap.php throws if .env is missing — swallow it so a fresh clone still
-// runs the pure unit tests (endpoint/integration tests will fail loudly).
-try {
-    require_once __DIR__ . '/../src/bootstrap.php';
-} catch (\Throwable $e) {
-    // No .env (e.g. fresh clone) — endpoint/integration tests will fail loudly.
-}
+require_once __DIR__ . '/../src/bootstrap.php';
+// EnvLoader no longer throws when .env is missing (env-only deployments), so a
+// fresh clone still runs the pure unit tests; integration tests fail loudly.

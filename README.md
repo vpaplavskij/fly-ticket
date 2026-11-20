@@ -16,7 +16,7 @@ Each row is one day with the cheapest fare found across all sources, a country f
 
 ## Requirements
 
-- PHP 8.5 with `curl` and `pdo_pgsql`
+- PHP 8.5 with `curl`, `pdo_pgsql`, `intl` (localized dates), `mbstring`
 - PostgreSQL
 - A Telegram bot token from [@BotFather](https://t.me/BotFather)
 - [Composer](https://getcomposer.org/)
@@ -24,16 +24,17 @@ Each row is one day with the cheapest fare found across all sources, a country f
 ## Setup
 
 ```bash
-# 1. Dependencies (vendor/ is committed, so this only verifies the install)
-composer install
+# 1. Dependencies (vendor/ is gitignored; on the server use --no-dev)
+composer install            # dev: composer install --no-dev
 
 # 2. Create your .env from the template and fill in real values
 cp .env.example .env
 #    → set DB_* to your PostgreSQL connection
 #    → set TELEGRAM_<NAME>_TOKEN to your bot token
 
-# 3. Verify everything is wired up (checks .env + DB connectivity)
-php src/index.php status
+# 3. Create the schema, then verify everything is wired up
+php src/index.php migrate   # one-time; fetch/bot scripts run no DDL
+php src/index.php status    # checks .env + DB connectivity
 ```
 
 `.env` is gitignored and never committed — `.env.example` is the template you copy from. See [Configuration](#configuration) for every option.
@@ -44,6 +45,7 @@ Everything runs through two entry points:
 
 | Command | What it does |
 |---|---|
+| `php src/index.php migrate` | Create/upgrade the DB schema (once after install) |
 | `php src/index.php status` | Validate `.env` + DB connectivity, print a summary |
 | `php src/jobs.php fetch` | Run all three fetchers concurrently (one subprocess each) |
 | `php src/jobs.php bot [name]` | Start the long-poll Telegram loop(s). No name = one process per configured bot. |
@@ -53,16 +55,16 @@ For day-to-day operation you don't run these by hand — **cron does**. The sche
 
 ```cron
 # Fetch prices 4×/day
-0 6,11,16,20 * * * cd /path/to/fly-ticket && php src/jobs.php fetch >> storage/logs/cron.log 2>&1
+0 6,11,16,20 * * * cd /path/to/fly-ticket && php src/jobs.php fetch >> storage/logs/cron-$(date +\%F).log 2>&1
 
 # Daily price report at 08:00 (fan-out to every bot)
-0 8 * * *         cd /path/to/fly-ticket && php src/jobs.php report >> storage/logs/cron.log 2>&1
+0 8 * * *         cd /path/to/fly-ticket && php src/jobs.php report >> storage/logs/cron-$(date +\%F).log 2>&1
 
 # Keep the bots alive: restart if not running (every minute)
-* * * * *         pgrep -f "php src/jobs.php bot" > /dev/null || (cd /path/to/fly-ticket && nohup php src/jobs.php bot >> storage/logs/bot.log 2>&1 &)
+* * * * *         pgrep -f "php src/jobs.php bot" > /dev/null || (cd /path/to/fly-ticket && nohup php src/jobs.php bot >> storage/logs/bot-$(date +\%F).log 2>&1 &)
 
-# Log retention: drop logs older than 30 days
-0 3 * * *         find /path/to/fly-ticket/storage/logs -name "app-*.log" -mtime +30 -delete >> /dev/null 2>&1
+# Log retention: drop logs older than 30 days (app-, cron- and bot- logs)
+0 3 * * *         find /path/to/fly-ticket/storage/logs -name "*.log" -mtime +30 -delete >> /dev/null 2>&1
 ```
 
 Install it with `crontab crontab.txt` (adjust the paths first). The watchdog line means you never have to think about keeping the bot alive — if it dies, cron brings it back within a minute.
@@ -103,11 +105,11 @@ src/
 ## Testing
 
 ```bash
-vendor/bin/phpunit --testsuite Unit       # 76 tests — runs against the live DB (synthetic route)
+vendor/bin/phpunit --testsuite Unit       # 82 tests — runs against fly_ticket_test, not the live DB
 vendor/bin/phpunit --testsuite Endpoints # hits the real APIs; flaky by design, don't gate on it
 ```
 
-The unit suite uses a synthetic route (`TST→TST2`) so it never clobbers real data. `CommandCoverageTest` exercises every text command and inline-button callback through the real dispatch path — add a case there whenever you add or rename one.
+The unit suite runs against its own database: `phpunit.xml.dist` sets `DB_NAME=fly_ticket_test` (real env wins over `.env`). Create it once — `CREATE DATABASE fly_ticket_test`. It also uses a synthetic route (`TST→TST2`) so nothing real is touched. `CommandCoverageTest` exercises every text command and inline-button callback through the real dispatch path — add a case there whenever you add or rename one.
 
 ## Localization
 

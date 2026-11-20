@@ -66,12 +66,12 @@ exit($exitCode ?? 0);
 /**
  * `fetch` job. Runs all source fetchers CONCURRENTLY.
  *
- * Each script is an independent sub-process that connects to the DB, runs
- * Schema::ensureTables(), and writes only its own route rows — so they never
- * collide. Running them in parallel (instead of one after another) cuts the
- * cron cycle from "sum of all sources" to "the slowest single source". Each
- * script's stdout is captured to a temp file and echoed once it finishes, in
- * completion order.
+ * Each script is an independent sub-process that connects to the DB and
+ * writes only its own route rows — so they never collide. Running them in
+ * parallel (instead of one after another) cuts the cron cycle from "sum of
+ * all sources" to "the slowest single source". Each script's stdout is
+ * captured to a temp file and echoed once it finishes, in completion order.
+ * The schema itself is created by `php src/index.php migrate`, once per install.
  */
 function runFetchJob(): void
 {
@@ -87,7 +87,7 @@ function runFetchJob(): void
     $procs = [];
     foreach ($sources as $name => $script) {
         $outFile = tempnam(sys_get_temp_dir(), 'flyticket-fetch-');
-        $cmd     = escapeshellarg('php') . ' ' . escapeshellarg($script);
+        $cmd     = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($script);
         $spec    = [
             0 => ['file', '/dev/null', 'r'],
             1 => ['file', $outFile, 'w'],
@@ -126,6 +126,13 @@ function runFetchJob(): void
         }
     }
 
+    // ── Retention: prune price_history once per cycle ──────────────────
+    // Runs after the fetch children finish, so the DELETE never races the
+    // writers (price_history.fetched_at is indexed for this).
+    $deleted = \Database::prunePriceHistory(90);
+    printf("Retention: removed %d price_history row(s) older than %s\n", $deleted, date('Y-m-d', strtotime('-90 days')));
+    Logger::info('History retention cleanup', ['removed' => $deleted]);
+
     exit($exitCode);
 }
 
@@ -159,7 +166,7 @@ function runReportJob(array $argv): void
         $arg     = $argv[5] ?? '';
         Logger::info('Job: report (single bot) starting', ['bot' => $bot->name, 'chat_id' => $chatId, 'command' => $command, 'arg' => $arg]);
         passthru(
-            escapeshellarg('php') . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/send-report.php')
+            escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/send-report.php')
             . ' ' . escapeshellarg($bot->name) . ' ' . escapeshellarg($chatId) . ' ' . escapeshellarg($command) . ' ' . escapeshellarg($arg),
             $code
         );
@@ -183,7 +190,7 @@ function runReportJob(array $argv): void
         $arg     = '';
         Logger::info('Report fan-out', ['bot' => $bot->name, 'chat_id' => $chatId]);
         passthru(
-            escapeshellarg('php') . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/send-report.php')
+            escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/send-report.php')
             . ' ' . escapeshellarg($bot->name) . ' ' . escapeshellarg($chatId) . ' ' . escapeshellarg($command) . ' ' . escapeshellarg($arg),
             $code
         );
@@ -214,7 +221,7 @@ function runBotJob(array $argv): void
     if ($name !== null) {
         Logger::info('Job: bot starting (single)', ['bot' => $name]);
         passthru(
-            escapeshellarg('php') . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/telegram-bot.php') . ' ' . escapeshellarg($name),
+            escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/telegram-bot.php') . ' ' . escapeshellarg($name),
             $code
         );
         exit($code);
@@ -227,10 +234,11 @@ function runBotJob(array $argv): void
 
     $specs = [];
     foreach ($bots as $bot) {
-        $cmd = escapeshellarg('php') . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/telegram-bot.php') . ' ' . escapeshellarg($bot->name);
+        $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg(__DIR__ . '/Api/Telegram/telegram-bot.php') . ' ' . escapeshellarg($bot->name);
         Logger::info('Spawning bot poller', ['bot' => $bot->name]);
-        // stdout/stderr inherit the parent's (cron redirects them to bot.log).
-        $specs[$bot->name] = proc_open($cmd, [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+        // stdout/stderr inherit the parent's streams, so a child's output and
+        // crash text land in bot.log (cron redirects the parent's streams there).
+        $specs[$bot->name] = proc_open($cmd, [1 => STDOUT, 2 => STDERR], $pipes);
     }
 
     // Wait for every child. Each poller runs forever, so this blocks until the

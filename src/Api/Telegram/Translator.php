@@ -2,7 +2,6 @@
 
 namespace FlyTicket\Api\Telegram;
 
-use FlyTicket\Database\Schema;
 use FlyTicket\Database\TranslationRepository;
 
 /**
@@ -83,7 +82,6 @@ class Translator
         }
 
         $pdo  = \Database::getConnection();
-        Schema::ensureTables($pdo);
         $repo = new TranslationRepository($pdo);
         $repo->seedFromFiles(__DIR__ . '/../../Database/seed');
         self::$caches = $repo->all();

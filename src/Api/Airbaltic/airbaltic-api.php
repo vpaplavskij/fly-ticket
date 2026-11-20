@@ -6,7 +6,6 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 use Config\Route;
 use FlyTicket\Support\Logger;
-use FlyTicket\Database\Schema;
 use FlyTicket\Database\FlightRepository;
 
 Logger::registerHandlers();
@@ -14,15 +13,13 @@ Logger::info('AirBaltic fetch starting');
 
 $airbaltic = new AirbalticClient();
 
-$days          = 90; // fetch data for today + next N days (unified with Ryanair)
-$retentionDays = 90; // keep price_history rows this many days (cleanup runs below)
+$days = 90; // fetch data for today + next N days (unified with Ryanair)
 
 // Both directions (outbound RIX → MLA, return MLA → RIX).
 $routes = Route::both();
 
 try {
     $pdo = \Database::getConnection();
-    Schema::ensureTables($pdo);
     $repo  = new FlightRepository($pdo);
 
     $dateFrom = date('Y-m-d');
@@ -90,12 +87,8 @@ try {
         }
     }
 
-    // ── Retention: drop price_history rows older than the window ───────
-    // Runs at most once per day across all fetch scripts (marker file).
-    $cutoff  = date('Y-m-d', strtotime("-{$retentionDays} days"));
-    $deleted = \Database::prunePriceHistory($retentionDays);
-    printf("AirBaltic: history retention — removed %d row(s) older than %s\n", $deleted, $cutoff);
-    Logger::info('History retention cleanup', ['source' => 'airbaltic', 'removed' => $deleted]);
+    // History retention is done once per cycle by jobs.php fetch (it prunes
+    // price_history after all children finish), so no DELETE happens here.
 
 } catch (\Exception $e) {
     Logger::error('AirBaltic fetch failed', [

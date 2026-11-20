@@ -6,7 +6,6 @@ require_once __DIR__ . '/../../bootstrap.php';
 
 use Config\BotRegistry;
 use FlyTicket\Database\FlightRepository;
-use FlyTicket\Database\Schema;
 
 /**
  * Send a flight-price report to a Telegram chat via a specific bot.
@@ -39,7 +38,6 @@ if ($bot === null) {
 
 // ── Setup ──────────────────────────────────────────────────────────
 $pdo = \Database::getConnection();
-Schema::ensureTables($pdo);
 $repo = new FlightRepository($pdo);
 
 // This bot's primary monitored route (its TELEGRAM_<NAME>_ROUTE override when
